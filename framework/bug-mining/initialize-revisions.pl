@@ -103,11 +103,15 @@ my $PROJECT_DIR = "$PROJECTS_DIR/$PID";
 my $PATCH_DIR   = "$PROJECT_DIR/patches";
 my $ANALYZER_OUTPUT = "$PROJECT_DIR/analyzer_output";
 my $GEN_BUILDFILE_DIR = "$PROJECT_DIR/build_files";
+my $DEPENDENCIES = "$PROJECT_DIR/lib/dependency";
+
+# Keep list of errors so user can see and resolve all at once
+my @errors = ();
 
 -d $PROJECT_DIR or die "$PROJECT_DIR does not exist: $!";
 -d $PATCH_DIR or die "$PATCH_DIR does not exist: $!";
 
-system("mkdir -p $ANALYZER_OUTPUT $GEN_BUILDFILE_DIR");
+system("mkdir -p $ANALYZER_OUTPUT $GEN_BUILDFILE_DIR $DEPENDENCIES");
 
 # Temporary directory
 my $TMP_DIR = Utils::get_tmp_dir();
@@ -138,7 +142,9 @@ sub _init_version {
 
     system("mkdir -p $ANALYZER_OUTPUT/$bid");
 
-    _init_maven($work_dir, $bid, $rev_id) or _init_ant($work_dir, $bid, $rev_id) or die "Unsupported build system";
+    if (! _init_maven($work_dir, $bid, $rev_id)) {
+        return ("", "", "");
+    }
 
     $project->initialize_revision($rev_id, "${vid}");
 
@@ -160,50 +166,24 @@ sub _init_maven {
 
     # Update the pom.xml to replace deprecated declarations.
     Utils::fix_dependency_urls("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_urls.patterns", 1) if -e "$work_dir/pom.xml";
-    
-    # Run maven-ant plugin and overwrite the original build.xml whenever a maven build file exists
-    my $cmd = " cd $work_dir" .
-              " && mvn ant:ant -Doverwrite=true 2>&1 -Dhttps.protocols=TLSv1.2" .
-              " && rm -rf $GEN_BUILDFILE_DIR/$rev_id && mkdir -p $GEN_BUILDFILE_DIR/$rev_id 2>&1" .
-              " && cp maven-build.* $GEN_BUILDFILE_DIR/$rev_id 2>&1" .
-              " && cp build.xml $GEN_BUILDFILE_DIR/$rev_id 2>&1";
 
-    if (! Utils::exec_cmd($cmd, "Convert Maven to Ant build file: " . $rev_id)) {
-        # Can't convert Maven to ant -> restore original Ant build file, which
-        # will be tried next.
-        if (-e "$work_dir/build.xml.orig") {
-            rename("$work_dir/build.xml.orig", "$work_dir/build.xml") or die "Cannot restore existing Ant build file: $!";
-        }
+    # Check for dependencies that can't be resolved
+    my $check_dep = "cd $work_dir && mvn dependency:resolve";
+    my $log;
+    if (! Utils::exec_cmd($check_dep, "Checking dependencies for pom.xml.", \$log)) {
+        push(@errors, "--------------------- Error with bug ${bid} --------------------- \n${log}");
         return 0;
     }
 
-    # Update the deprecated urls in the generated maven.build.xml
-    for my $build_file (("maven-build.xml", "maven-build.properties")) {
-        Utils::fix_dependency_urls("$work_dir/$build_file", "$UTIL_DIR/fix_dependency_urls.patterns", 0) if -e "$work_dir/$build_file";
-    }
+    # Copy dependencies to project lib/dependency (ignores dependency if local copy already exists)
+    my $copy_dep = "cd $work_dir && mvn dependency:copy-dependencies -Dmdep.copyPom=true -DoutputDirectory=$DEPENDENCIES" or die "Cannot copy maven dependencies";
+    Utils::exec_cmd($copy_dep, "Copying dependencies for pom.xml.");
 
-    $cmd = " cd $work_dir" .
-           " && java -jar $LIB_DIR/analyzer.jar $work_dir $ANALYZER_OUTPUT/$bid maven-build.xml 2>&1";
-    Utils::exec_cmd($cmd, "Run build-file analyzer on maven-ant.xml.") or die;
-
-    # Get dependencies from the maven-build.xml
-    my $download_dep = "cd $work_dir && ant -Dmaven.repo.local=\"$PROJECT_DIR/lib\" get-deps";
-    Utils::exec_cmd($download_dep, "Download dependencies for maven-build.xml.");
-
-    return 1;
-}
-
-#
-# Init routine for Ant builds.
-#
-sub _init_ant {
-    my ($work_dir, $bid, $rev_id) = @_;
-
-    if (! -e "$work_dir/build.xml") { return 0; }
-
-    my $cmd = " cd $work_dir" .
-              " && java -jar $LIB_DIR/analyzer.jar $work_dir $ANALYZER_OUTPUT/$bid build.xml 2>&1";
-    Utils::exec_cmd($cmd, "Run build-file analyzer on build.xml.");
+    # Construct classpaths for compiling and running source and test code
+    my $source_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/source_cp -Dmdep.localRepoProperty=\'$DEPENDENCIES\'";
+    Utils::exec_cmd($source_classpath, "Constructing source classpath");
+    my $test_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/test_cp -Dmdep.localRepoProperty=\'$DEPENDENCIES\'";
+    Utils::exec_cmd($test_classpath, "Constructing test classpath");
 
     return 1;
 }
@@ -217,6 +197,9 @@ sub _bootstrap {
 
     my ($v1, $src_b, $test_b) = _init_version($project, $bid, "${bid}b");
     my ($v2, $src_f, $test_f) = _init_version($project, $bid, "${bid}f");
+    if ($v1 eq "" || $v2 eq "") {
+        return 0;
+    }
 
     die "Source directories don't match for buggy and fixed revisions of $bid" unless $src_b eq $src_f;
     die "Test directories don't match for buggy and fixed revisions of $bid" unless $test_b eq $test_f;
@@ -225,6 +208,8 @@ sub _bootstrap {
     # Minimization doesn't matter here, which has to be done manually.
     $project->export_diff($v2, $v1, "$PATCH_DIR/$bid.src.patch", "$src_f");
     $project->export_diff($v2, $v1, "$PATCH_DIR/$bid.test.patch", "$test_f");
+
+    return 1;
 }
 
 my @ids = $project->get_bug_ids();
@@ -236,6 +221,7 @@ if (defined $BID) {
         @ids = grep { ($BID == $_) } @ids;
     }
 }
+
 foreach my $bid (@ids) {
     printf ("%4d: $project->{prog_name}\n", $bid);
 
@@ -243,7 +229,10 @@ foreach my $bid (@ids) {
     system("rm -rf $ANALYZER_OUTPUT/${bid} $PATCH_DIR/${bid}.src.patch $PATCH_DIR/${bid}.test.patch");
 
     # Populate the layout map and patches directory
-    _bootstrap($project, $bid);
+    if (! _bootstrap($project, $bid)) {
+        printf("      -> Skipping - error with bug\n");
+        next;
+    }
 
     # Defects4J cannot handle empty patch files -> skip the sanity check since
     # these candidates are filtered in a later step anyway.
@@ -257,38 +246,12 @@ foreach my $bid (@ids) {
             or die "Cannot clean working directory";
     $project->{prog_root} = $TMP_DIR;
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) or die "Cannot checkout fixed version";
-    $project->sanity_check();
+    #$project->sanity_check();
 }
 
-# Create a sorted, unique list of inferred include/exclude patterns
-system("cat $ANALYZER_OUTPUT/*/includes | sort -u | while read -r include; do echo \"<include name='\"\$include\"' />\"; done >  $ANALYZER_OUTPUT/inc_exc.patterns");
-system("cat $ANALYZER_OUTPUT/*/excludes | sort -u | while read -r exclude; do echo \"<exclude name='\"\$exclude\"' />\"; done >> $ANALYZER_OUTPUT/inc_exc.patterns");
-open(IN, "<$ANALYZER_OUTPUT/inc_exc.patterns") or die "Cannot open include/exclude patterns: $!";
-  my @patterns = <IN>;
-close(IN);
-
-# Parse generated build file and insert inferred include/exclude patterns
-my $build_file  = "$PROJECT_DIR/$PID.build.xml";
-my @cache;
-open(IN, "<$build_file") or die "Cannot open build file: $!";
-while(<IN>) {
-  if (/^(\s*)<!--###ADD_INC_EXC###/) {
-    my $indent = $1;
-    push(@cache, map { $indent . $_ } @patterns);
-  } else {
-    push(@cache, $_);
-  }
+my $numErrors = @errors;
+if ($numErrors > 0) {
+    my $msg = join("\n", @errors);
+    system("echo \"There are $numErrors bugs with issues: \n $msg\"");
 }
-
-# Overwrite the existing, generated build file
-system("mv $build_file $build_file.bak") if $DEBUG;
-open(OUT, ">$build_file");
-foreach (@cache) {
-  print(OUT $_);
-}
-close(OUT);
-
-print("\nAdded the following entries to 'all.manual.tests' (in $build_file)\n");
-system("cat $ANALYZER_OUTPUT/inc_exc.patterns");
-
 system("rm -rf $TMP_DIR") unless $DEBUG;
