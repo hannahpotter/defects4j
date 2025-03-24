@@ -126,6 +126,9 @@ my $TRACKER_ID = $cmd_opts{t};
 my $TRACKER_NAME = $cmd_opts{g};
 $DEBUG = 1 if defined $cmd_opts{D};
 
+# Keep list of errors so user can see and resolve all at once
+my @errors = ();
+
 # Check format of target version id
 if (defined $BID) {
     $BID =~ /^(\d+)(:(\d+))?$/ or die "Wrong version id format ((\\d+)(:(\\d+))?): $BID!";
@@ -141,6 +144,12 @@ $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 # Set the projects and repository directories to the current working directory
 my $PATCHES_DIR = "$PROJECTS_DIR/$PID/patches";
 my $FAILING_DIR = "$PROJECTS_DIR/$PID/failing_tests";
+
+my $SCRIPTS = "$WORK_DIR/../../../scripts";
+my $DEPENDENCIES = "$PROJECTS_DIR/$PID/lib/dependency";
+my $ANALYZER_OUTPUT = "$PROJECTS_DIR/$PID/analyzer_output";
+my $ARGS_FILES = "$PROJECTS_DIR/$PID/args_files";
+system("mkdir -p $ARGS_FILES");
 
 -d $PATCHES_DIR or die "$PATCHES_DIR does not exist: $!";
 -d $FAILING_DIR or die "$FAILING_DIR does not exist: $!";
@@ -194,8 +203,10 @@ foreach my $bid (@ids) {
     $data{$ISSUE_TRACKER_ID} = $TRACKER_ID;
 
     _check_diff($project, $bid, \%data) and
-    _check_t2v2($project, $bid, \%data) and
-    _check_t2v1($project, $bid, \%data) or next;
+    _check_compilation($project, $bid, \%data) and
+    _export_tests($project, $bid, \%data) or next;
+    #_check_t2v2($project, $bid, \%data) and
+    #_check_t2v1($project, $bid, \%data) or next;
 
     # Add data set to result file
     _add_row(\%data);
@@ -237,12 +248,103 @@ sub _check_diff {
 }
 
 #
-# Check whether v2 and t2 can be compiled and export failing tests.
+# Check whether v1, v2, and t2 can be compiled and export args for javac.
 #
 # Returns 1 on success, 0 otherwise
 #
-sub _check_t2v2 {
+sub _check_compilation {
     my ($project, $bid, $data) = @_;
+
+    # Lookup revision ids
+    my $v1  = $project->lookup("${bid}b");
+    my $v2  = $project->lookup("${bid}f");
+
+    my $project_path = $project->{prog_root};
+
+    # Checkout v1
+    $project->checkout_vid("${bid}b", $TMP_DIR, 1) == 1 or die;
+
+    # PAUSE PLACE TODO make reliable way to set the compiler source and target to Java 11
+    # Also in previous phase check that source and test Directories are being found correctly (looks like needs change to like DBUtils.pm _maven_2_layout)
+    # Also replace the classpath paths in the previous phase with command line arg placeholder
+
+    # TODO the error log isn't working...
+
+    # Check that the v1 and t2 compile with maven
+    my $check_compile = "cd $project_path && mvn compile";
+    my $log;
+    my $ret = Utils::exec_cmd($check_compile, "Checking that v1 source compiles with maven.", \$log);
+    if (! $ret) {
+        push(@errors, "--------------------- Error compiling source v1 for bug ${bid} --------------------- \n${log}");
+    }
+    _add_bool_result($data, $COMP_V1, $ret) or return 0;
+    # TODO Find more general way to fix the animal sniffer and version plugin bundle
+    my $check_test_compile = "cd $project_path && mvn test-compile -Danimal.sniffer.skip=true";
+    $ret = Utils::exec_cmd($check_test_compile, "Checking that v1t2 compiles with maven.", \$log);
+    if (! $ret) {
+        push(@errors, "--------------------- Error compiling tests v1t2 for bug ${bid} --------------------- \n${log}");
+    }
+    _add_bool_result($data, $COMP_T2V1, $ret) or return 0;
+
+    # Construct the args files for compiling source and tests
+    system("mkdir -p $ARGS_FILES/$bid");
+    my $v1_layout = $project->_determine_layout($v1);
+    # TODO can jsut call $project->src_dir(vid) to get the path to the source files
+    my $construct_args = "python3 $SCRIPTS/construct_javac_args.py"
+                         ." --dependency $ANALYZER_OUTPUT/$bid/source_cp"
+                         ." --projectpath $project_path"
+                         .' --pathvar \$local_project_path'
+                         ." --output $ARGS_FILES/$bid/args_source_v1.txt"
+                         .' --classpath \$local_project_path/target/classes'
+                         .' --sourcepath \$local_project_path/'."$v1_layout->{src}"
+                         ." --sourcefiles $project_path/$v1_layout->{src}"
+                         .' --target \$local_project_path/target/classes';
+    Utils::exec_cmd($construct_args, "Constructing args file for compiling v1 source.");
+    my $v2_layout = $project->_determine_layout($v2);
+    $construct_args = "python3 $SCRIPTS/construct_javac_args.py"
+                         ." --dependency $ANALYZER_OUTPUT/$bid/test_cp"
+                         ." --projectpath $project_path"
+                         .' --pathvar \$local_project_path'
+                         ." --output $ARGS_FILES/$bid/args_test_v2.txt"
+                         .' --classpath \$local_project_path/target/classes'
+                         .' --sourcepath \$local_project_path/'."$v1_layout->{test}"
+                         ." --sourcefiles $project_path/$v1_layout->{test}"
+                         .' --target \$local_project_path/target/test-classes';
+    Utils::exec_cmd($construct_args, "Constructing args file for compiling v2 tests.");
+    
+    # Checkout v2
+    $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
+
+    # Check that the v2 and t2 compile with maven
+    $check_compile = "cd $project_path && mvn compile";
+    $ret = Utils::exec_cmd($check_compile, "Checking that v2 source compiles with maven.", \$log);
+    if (! $ret) {
+        push(@errors, "--------------------- Error compiling source v2 for bug ${bid} --------------------- \n${log}");
+    }
+    _add_bool_result($data, $COMP_V2, $ret) or return 0;
+
+    # Construct the args files for compiling source
+    $construct_args = "python3 $SCRIPTS/construct_javac_args.py"
+                         ." --dependency $ANALYZER_OUTPUT/$bid/source_cp"
+                         ." --projectpath $project_path"
+                         .' --pathvar \$local_project_path'
+                         ." --output $ARGS_FILES/$bid/args_source_v2.txt"
+                         .' --classpath \$local_project_path/target/classes'
+                         .' --sourcepath \$local_project_path/'."$v2_layout->{src}"
+                         ." --sourcefiles $project_path/$v1_layout->{src}"
+                         .' --target \$local_project_path/target/classes';
+    Utils::exec_cmd($construct_args, "Constructing args file for compiling v2 source.");
+}
+
+#
+# Export failing tests in v2t2 to exclude.
+#
+# Returns 1 on success, 0 otherwise
+#
+sub _export_tests {
+    my ($project, $bid, $data) = @_;
+
+    my $project_path = $project->{prog_root};
 
     # Lookup revision ids
     my $v1 = $project->lookup("${bid}b");
@@ -254,49 +356,53 @@ sub _check_t2v2 {
     # Checkout v2
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
 
-    # Compile v2 ant t2
-    my $ret = $project->compile();
-    _add_bool_result($data, $COMP_V2, $ret) or return 0;
-    $ret = $project->compile_tests();
-    _add_bool_result($data, $COMP_T2V2, $ret) or return 0;
+    # https://stackoverflow.com/questions/9288107/run-single-test-from-a-junit-class-using-command-line
+    # Run a java test class
+    #    java -jar junit-platform-console-standalone-1.11.3.jar execute -cp <classpath-for-the-class-under-test> --select-class=hello.HelloTest
+    # Run a java test method
+    #    java -jar junit-platform-console-standalone-1.11.3.jar execute -cp <classpath-for-the-class-under-test> --select=method:hello.HelloTest#hi
+
+
+    # Run tests with maven first
+    # Animal sniffer is incompatible with Java 11 (the --release flag in javac does the same functionality)
+    my $run_tests = "cd $project_path && mvn test -Danimal.sniffer.skip=true";
+    my $log;
+    my $ret = Utils::exec_cmd($run_tests, "Running v2 tests with maven.", \$log);
+    if (! $ret) {
+        push(@errors, "--------------------- Error running tests for bug ${bid} --------------------- \n${log}");
+        return 0;
+    }
+    # Extract test info to run natively
+    system("mkdir -p $ARGS_FILES/$bid/test_info");
+    my $construct_args = "python3 $SCRIPTS/extract_test_info.py"
+                         ." --dependency $ANALYZER_OUTPUT/$bid/test_cp"
+                         ." --reports $project_path/target/surefire-reports"
+                         ." --output $ARGS_FILES/$bid/test_info"
+                         ." --classes $project_path/target/classes"
+                         ." --testclasses $project_path/target/test-classes";
+    Utils::exec_cmd($construct_args, "Extracting test info for t2.");
 
     my $successful_runs = 0;
     my $run = 1;
     while ($successful_runs < $TEST_RUNS && $run <= $MAX_TEST_RUNS) {
         # Automatically fix broken tests and recompile
         $project->fix_tests("${bid}f");
-        $project->compile_tests() or die;
+        $project->compile("$ARGS_FILES/$bid/args_test_v2.txt", "TODELETE.txt") or die;
 
         # Run t2 and get number of failing tests
         my $file = "$project->{prog_root}/v2.fail"; `>$file`;
 
         $project->run_tests($file) or die;
-
-        # Filter out invalid test names, such as testEncode[0].
-        # This problem impacts many Commons projects.
-        if(-e "$project->{prog_root}/v2.fail"){
-            rename("$project->{prog_root}/v2.fail", "$project->{prog_root}/v2.fail".'.bak');
-            open(IN, '<'."$project->{prog_root}/v2.fail".'.bak') or die $!;
-            open(OUT, '>'."$project->{prog_root}/v2.fail") or die $!;
-            while(<IN>) {
-                if($_ =~ /\-\-\-/){
-                    $_ =~ s/\[[0-9]\]//g;
-                }
-                print OUT $_;
-            }
-            close(IN);
-            close(OUT);
-        }
 	
         # Get number of failing tests
-        my $list = Utils::get_failing_tests($file);
-        my $fail = scalar(@{$list->{"classes"}}) + scalar(@{$list->{"methods"}});
-
-        if ($run == 1) {
-            $data->{$FAIL_T2V2} = $fail;
-        } else {
-            $data->{$FAIL_T2V2} += $fail;
-        }
+        #my $list = Utils::get_failing_tests($file);
+        #my $fail = scalar(@{$list->{"classes"}}) + scalar(@{$list->{"methods"}});
+    my $fail = 0;
+        #if ($run == 1) {
+        #    $data->{$FAIL_T2V2} = $fail;
+        #} else {
+        #    $data->{$FAIL_T2V2} += $fail;
+        #}
 
         ++$successful_runs;
 
@@ -308,29 +414,10 @@ sub _check_t2v2 {
             system("cat $file >> $FAILING_DIR/$v2");
             $successful_runs = 0;
         }
+
         ++$run;
     }
     return 1;
-}
-
-#
-# Check whether t2 and v1 can be compiled
-#
-sub _check_t2v1 {
-    my ($project, $bid, $data) = @_;
-
-    # Lookup revision ids
-    my $v1  = $project->lookup("${bid}b");
-    my $v2  = $project->lookup("${bid}f");
-
-    # Checkout v1
-    $project->checkout_vid("${bid}b", $TMP_DIR, 1) == 1 or die;
-
-    # Compile v1 and t2v1
-    my $ret = $project->compile();
-    _add_bool_result($data, $COMP_V1, $ret) or return;
-    $ret = $project->compile_tests();
-    _add_bool_result($data, $COMP_T2V1, $ret);
 }
 
 #

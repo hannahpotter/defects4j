@@ -164,8 +164,9 @@ sub _init_maven {
         rename("$work_dir/build.xml", "$work_dir/build.xml.orig") or die "Cannot backup existing Ant build file: $!";
     }
 
-    # Update the pom.xml to replace deprecated declarations.
+    # Update the pom.xml to update pom elements.
     Utils::fix_dependency_urls("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_urls.patterns", 1) if -e "$work_dir/pom.xml";
+    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns") if -e "$work_dir/pom.xml";
 
     # Check for dependencies that can't be resolved
     my $check_dep = "cd $work_dir && mvn dependency:resolve";
@@ -176,13 +177,13 @@ sub _init_maven {
     }
 
     # Copy dependencies to project lib/dependency (ignores dependency if local copy already exists)
-    my $copy_dep = "cd $work_dir && mvn dependency:copy-dependencies -Dmdep.copyPom=true -DoutputDirectory=$DEPENDENCIES" or die "Cannot copy maven dependencies";
+    my $copy_dep = "cd $work_dir && mvn dependency:copy-dependencies -Dmdep.copyPom=true -DoutputDirectory=$DEPENDENCIES -Dmdep.useRepositoryLayout=true" or die "Cannot copy maven dependencies";
     Utils::exec_cmd($copy_dep, "Copying dependencies for pom.xml.");
 
     # Construct classpaths for compiling and running source and test code
-    my $source_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/source_cp -Dmdep.localRepoProperty=\'$DEPENDENCIES\'";
+    my $source_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/source_cp -Dmdep.localRepoProperty=".'\$local_project_path';
     Utils::exec_cmd($source_classpath, "Constructing source classpath");
-    my $test_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/test_cp -Dmdep.localRepoProperty=\'$DEPENDENCIES\'";
+    my $test_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/test_cp -Dmdep.localRepoProperty=".'\$local_project_path';
     Utils::exec_cmd($test_classpath, "Constructing test classpath");
 
     return 1;

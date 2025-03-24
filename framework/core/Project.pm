@@ -468,6 +468,7 @@ sub checkout_vid {
     for my $build_file (("build.xml", "maven-build.xml", "pom.xml", "project.xml", "project.properties", "default.properties", "maven-build.properties")) {
         Utils::fix_dependency_urls("$work_dir/$build_file", "$UTIL_DIR/fix_dependency_urls.patterns", 0) if -e "$work_dir/$build_file";
     }
+    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns") if -e "$work_dir/pom.xml";
 
     # Commit and tag the fixed program version
     $tag_name = Utils::tag_prefix($pid, $bid) . $TAG_FIXED;
@@ -530,7 +531,7 @@ sub checkout_vid {
 
 =pod
 
-  $project->compile([log_file])
+  $project->compile(arg_file [,log_file])
 
 Compiles the sources of the project version that is currently checked out.
 If F<log_file> is provided, the compiler output is written to this file.
@@ -538,8 +539,23 @@ If F<log_file> is provided, the compiler output is written to this file.
 =cut
 
 sub compile {
-    my ($self, $log_file) = @_;
-    return $self->_ant_call_comp("compile", undef, $log_file);
+    @_ >= 2 or die $ARG_ERROR;
+    my ($self, $arg_file, $log_file) = @_;
+
+    my $cmd = " cd $self->{prog_root}" .
+              ' && export local_project_path='."$self->{prog_root}" .
+              " && javac" .
+              ' @'."$arg_file" .
+              "  2>&1";
+    my $log;
+    my $ret = Utils::exec_cmd($cmd, "Running javac compile", \$log);
+
+    if (defined $log_file) {
+        open(OUT, ">>$log_file") or die "Cannot open log file: $!";
+        print(OUT "$log");
+        close(OUT);
+    }
+    return $ret;
 }
 
 =pod
@@ -576,6 +592,17 @@ sub run_tests {
         $single_test =~ /([^:]+)::([^:]+)/ or die "Wrong format for single test!";
         $single_test_opt = "-Dtest.entry.class=$1 -Dtest.entry.method=$2";
     }
+
+    #my ($self, $arg_file, $log_file) = @_;
+
+    #my $cmd = " cd $self->{prog_root}" .
+    #          " && java" .
+    #          " -jar ".
+    #          " @$arg_file" .
+    #          "  2>&1";
+    #my $log;
+    #my ($self, $out_file, $single_test) = @_;
+    #my $ret = Utils::exec_cmd($cmd, "Running javac compile", \$log);*/
 
     return $self->_ant_call_comp("run.dev.tests", "-DOUTFILE=$out_file $single_test_opt");
 }

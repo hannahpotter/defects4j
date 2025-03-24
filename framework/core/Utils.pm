@@ -39,6 +39,7 @@ use strict;
 
 use File::Basename;
 use File::Spec;
+use XML::LibXML;
 use Cwd qw(abs_path);
 use Carp qw(confess);
 use Fcntl qw< LOCK_EX SEEK_END >;
@@ -417,6 +418,159 @@ sub fix_dependency_urls {
         unlink($build_file);
         my $fix = IO::File->new(">$build_file") or die("Cannot overwrite build file: $!");
         print $fix @lines;
+        $fix->flush();
+        $fix->close();
+    }
+}
+
+=pod
+
+=item C<Utils::fix_pom(build_file)>
+
+Parses the F<build_file> and performs necessary replacements.
+
+=cut
+sub fix_pom {
+    @_ == 2 || die $ARG_ERROR;
+    my ($build_file, $pattern_file) = @_;
+
+    my $dom = XML::LibXML->load_xml(location => $build_file) or die("Cannot read the build file: $build_file");
+    my $root_ns = $dom->documentElement->namespaceURI;
+    my $xpc = XML::LibXML::XPathContext->new($dom);
+    $xpc->registerNs('ns', $root_ns);
+    
+    open(IN, "<$pattern_file") or die("Cannot read pattern file: $pattern_file");
+    my @patterns = <IN>;
+    close(IN);
+    my $modified = 0; 
+    # Read all elements; skip comments
+    foreach my $l (@patterns) {
+        $l =~ /^\s*#/ and next;
+        chomp($l);
+        $l =~ /([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <find>,<change>)");
+        my ($find, $change, $r_or_a) = split(",", $l);
+        my $found = 0;
+        foreach my $element ($xpc->findnodes($find)) {
+            print(STDERR "Pattern matches in build file ($build_file): $find\n") if $DEBUG;
+            $modified = 1;
+            $element->removeChildNodes();
+            $element->appendText($change);
+        }
+    } 
+
+    # TODO generalize the special cases to have something like the patterns files
+    # Handle a special case with rat checks
+    # If the rat checks is used, ignore the added defects4j files
+    foreach my $element ($xpc->findnodes("//ns:build/ns:plugins/ns:plugin")) {
+        my($artifact_id) = $element->getChildrenByTagName('artifactId');
+        my($text) = $artifact_id->childNodes();
+        if ($text->data eq "apache-rat-plugin") {
+            print(STDERR "RAT IS USED\n") if $DEBUG;
+            my $build_properties = $dom->createElement("exclude");
+            $build_properties->appendText("defects4j.build.properties");        
+            my $config = $dom->createElement("exclude");
+            $config->appendText(".defects4j.config"); 
+
+            my($configuration) = $element->getChildrenByTagName('configuration');
+            if ($configuration) {
+                my($excludes) = $configuration->getChildrenByTagName('excludes');
+                if (!$excludes) {
+                    $excludes = $dom->createElement("excludes");
+                    $configuration->addChild($excludes);                
+                } 
+                $excludes->addChild($build_properties);
+                $excludes->addChild($config);
+            } else {
+                my $configuration = $dom->createElement("configuration");
+                my $excludes = $dom->createElement("excludes");
+
+                $excludes->addChild($build_properties);
+                $excludes->addChild($config);
+                $configuration->addChild($excludes);
+                $element->addChild($configuration);
+            }
+            $modified = 1;
+        }
+    }
+
+    # Handle a special case with maven-compiler-version
+    # Add the version
+    foreach my $element ($xpc->findnodes("//ns:build/ns:plugins/ns:plugin")) {
+        my($artifact_id) = $element->getChildrenByTagName('artifactId');
+        my($text) = $artifact_id->childNodes();
+        if ($text->data eq "maven-compiler-plugin") {
+            print(STDERR "MAVEN COMPILER PLUGIN\n");
+
+            my($version) = $element->getChildrenByTagName("version");
+            if (! $version) {
+                my $new_version = $dom->createElement("version");
+                $new_version->appendText("3.8.0");
+                $element->addChild($new_version);
+            }
+
+            my($configuration) = $element->getChildrenByTagName('configuration');
+            if (! $configuration) {
+                $configuration = $dom->createElement("configuration");
+            } 
+            my $release = $dom->createElement("release");
+            $release->appendText("11");
+            $configuration->removeChildNodes();
+            $configuration->addChild($release);
+
+            $modified = 1;
+        }
+    }
+
+    # TODO only really need to do the org.apache.felix thing if there is the 
+    # problem with the old plugin use as a direct or transitive dependency
+    foreach my $element ($xpc->findnodes("//ns:build/ns:plugins")) {
+        my $plugin = $dom->createElement("plugin");
+        my $group_id = $dom->createElement("groupId");
+        $group_id->appendText("org.apache.felix");
+        my $artifact_id = $dom->createElement("artifactId");
+        $artifact_id->appendText("maven-bundle-plugin");
+        my $version = $dom->createElement("version");
+        $version->appendText("3.0.0");
+
+        $plugin->addChild($group_id);
+        $plugin->addChild($artifact_id);
+        $plugin->addChild($version);
+        $element->addChild($plugin);
+        $modified = 1;
+    }
+
+    # Handle special case
+    # If the maven-compiler-plugin isn't already there, add it and add the Java version
+    if (! $xpc->findnodes("//ns:build/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']")) {
+        print(STDERR "NOT THERE!");
+
+        foreach my $element ($xpc->findnodes("//ns:build/ns:plugins")) {
+            print(STDERR "PLUGINS");
+            my $plugin = $dom->createElement("plugin");
+            my $artifact_id = $dom->createElement("artifactId"); 
+            $artifact_id->appendText("maven-compiler-plugin");
+            my $version = $dom->createElement("version");
+            $version->appendText("3.8.0");
+            # TODO need to make sure maven-compiler-plugin is always this version
+            my $configuration = $dom->createElement("configuration");
+            my $release = $dom->createElement("release");
+            $release->appendText("11");
+
+            $configuration->addChild($release);
+            $plugin->addChild($artifact_id);
+            $plugin->addChild($configuration);
+            $element->addChild($plugin);
+
+            $modified = 1;
+        }
+    }
+    
+    # Update the build file if necessary
+    if ($modified) {
+        unlink($build_file);
+        my $fix = IO::File->new(">$build_file") or die("Cannot overwrite build file: $!");
+        print(STDERR "$dom\n") if $DEBUG;
+        print $fix $dom;
         $fix->flush();
         $fix->close();
     }
