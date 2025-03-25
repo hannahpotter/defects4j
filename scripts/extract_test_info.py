@@ -1,6 +1,7 @@
 import argparse
 from path_utils import *
 import xml.etree.ElementTree as ET
+import re
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dependency', type=file_path)
@@ -51,10 +52,16 @@ args_file = open(os.path.join(args.output, "args_junit.txt"), "w")
 args_file.write("--classpath " + classpath + "\n")
 args_file.close()
 
+# TODO make this more robust and make sure only writing version once
 version = open(os.path.join(args.output, "version.txt"), "w")
 for dependency in dependency_path.split(":"):
-    if "junit" in dependency:
-        v = dependency.split("/")[3]
-        v = v.split(".")[0]
-        version.write(v)
+    # Match for JUnit 3 or 4
+    match = re.search(r"junit-[\d*.]+", dependency)
+    if match:
+        version.write(match.group(0)[6])
+    # Match for JUnit 5
+    match = re.search(r"junit-jupiter", dependency)
+    if match:
+        version.write(str(5))
+
 version.close()

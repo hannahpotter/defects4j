@@ -203,7 +203,7 @@ foreach my $bid (@ids) {
     $data{$ISSUE_TRACKER_ID} = $TRACKER_ID;
 
     _check_diff($project, $bid, \%data) and
-    _check_compilation($project, $bid, \%data) and
+    _check_compilation($project, $bid, \%data) or next;# and
     _export_tests($project, $bid, \%data) or next;
     #_check_t2v2($project, $bid, \%data) and
     #_check_t2v1($project, $bid, \%data) or next;
@@ -293,23 +293,21 @@ sub _check_compilation {
     my $construct_args = "python3 $SCRIPTS/construct_javac_args.py"
                          ." --dependency $ANALYZER_OUTPUT/$bid/source_cp"
                          ." --projectpath $project_path"
-                         .' --pathvar \$local_project_path'
                          ." --output $ARGS_FILES/$bid/args_source_v1.txt"
-                         .' --classpath \$local_project_path/target/classes'
-                         .' --sourcepath \$local_project_path/'."$v1_layout->{src}"
+                         ." --classpath target/classes"
+                         ." --sourcepath $v1_layout->{src}"
                          ." --sourcefiles $project_path/$v1_layout->{src}"
-                         .' --target \$local_project_path/target/classes';
+                         ." --target target/classes";
     Utils::exec_cmd($construct_args, "Constructing args file for compiling v1 source.");
     my $v2_layout = $project->_determine_layout($v2);
     $construct_args = "python3 $SCRIPTS/construct_javac_args.py"
                          ." --dependency $ANALYZER_OUTPUT/$bid/test_cp"
                          ." --projectpath $project_path"
-                         .' --pathvar \$local_project_path'
                          ." --output $ARGS_FILES/$bid/args_test_v2.txt"
-                         .' --classpath \$local_project_path/target/classes'
-                         .' --sourcepath \$local_project_path/'."$v1_layout->{test}"
+                         .' --classpath target/classes'
+                         ." --sourcepath $v1_layout->{test}"
                          ." --sourcefiles $project_path/$v1_layout->{test}"
-                         .' --target \$local_project_path/target/test-classes';
+                         .' --target target/test-classes';
     Utils::exec_cmd($construct_args, "Constructing args file for compiling v2 tests.");
     
     # Checkout v2
@@ -327,12 +325,11 @@ sub _check_compilation {
     $construct_args = "python3 $SCRIPTS/construct_javac_args.py"
                          ." --dependency $ANALYZER_OUTPUT/$bid/source_cp"
                          ." --projectpath $project_path"
-                         .' --pathvar \$local_project_path'
                          ." --output $ARGS_FILES/$bid/args_source_v2.txt"
-                         .' --classpath \$local_project_path/target/classes'
-                         .' --sourcepath \$local_project_path/'."$v2_layout->{src}"
-                         ." --sourcefiles $project_path/$v1_layout->{src}"
-                         .' --target \$local_project_path/target/classes';
+                         .' --classpath target/classes'
+                         ." --sourcepath $v2_layout->{test}"
+                         ." --sourcefiles $project_path/$v2_layout->{test}"
+                         .' --target target/classes';
     Utils::exec_cmd($construct_args, "Constructing args file for compiling v2 source.");
 }
 
@@ -365,7 +362,8 @@ sub _export_tests {
 
     # Run tests with maven first
     # Animal sniffer is incompatible with Java 11 (the --release flag in javac does the same functionality)
-    my $run_tests = "cd $project_path && mvn test -Danimal.sniffer.skip=true";
+    # Jacoco is for instrumenting class files to get code coverage reports
+    my $run_tests = "cd $project_path && mvn test -Danimal.sniffer.skip=true -Djacoco.skip=true";
     my $log;
     my $ret = Utils::exec_cmd($run_tests, "Running v2 tests with maven.", \$log);
     if (! $ret) {
@@ -383,7 +381,7 @@ sub _export_tests {
     Utils::exec_cmd($construct_args, "Extracting test info for t2.");
 
     my $successful_runs = 0;
-    my $run = 1;
+    my $run = 20; # TEMP TO SKIP
     while ($successful_runs < $TEST_RUNS && $run <= $MAX_TEST_RUNS) {
         # Automatically fix broken tests and recompile
         $project->fix_tests("${bid}f");

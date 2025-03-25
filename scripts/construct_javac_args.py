@@ -4,7 +4,6 @@ from path_utils import *
 parser = argparse.ArgumentParser()
 parser.add_argument('--dependency', type=file_path)
 parser.add_argument('--projectpath', type=dir_path)
-parser.add_argument('--pathvar')
 parser.add_argument('--classpath')
 parser.add_argument('--target')
 parser.add_argument('--sourcepath')
@@ -19,7 +18,7 @@ f.close()
 files = get_all_files(args.sourcefiles)
 src_path = []
 for path in files:
-    src_path.append(path.replace(args.projectpath, args.pathvar))
+    src_path.append(path.replace(args.projectpath + "/", ""))
 
 # construct arguments
 #-classpath classpath:<jars>

@@ -543,7 +543,6 @@ sub compile {
     my ($self, $arg_file, $log_file) = @_;
 
     my $cmd = " cd $self->{prog_root}" .
-              ' && export local_project_path='."$self->{prog_root}" .
               " && javac" .
               ' @'."$arg_file" .
               "  2>&1";
@@ -592,6 +591,9 @@ sub run_tests {
         $single_test =~ /([^:]+)::([^:]+)/ or die "Wrong format for single test!";
         $single_test_opt = "-Dtest.entry.class=$1 -Dtest.entry.method=$2";
     }
+
+    # For JUnit 3? and 4 use the SingleTestRunner class
+    # For JUnit 5 use java -jar junit-platform-console-standalone-1.11.3.jar execute -cp <classpath-for-the-class-under-test> --select=method:hello.HelloTest#hi
 
     #my ($self, $arg_file, $log_file) = @_;
 

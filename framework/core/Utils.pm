@@ -461,7 +461,7 @@ sub fix_pom {
     # TODO generalize the special cases to have something like the patterns files
     # Handle a special case with rat checks
     # If the rat checks is used, ignore the added defects4j files
-    foreach my $element ($xpc->findnodes("//ns:build/ns:plugins/ns:plugin")) {
+    foreach my $element ($xpc->findnodes("//ns:build/*/ns:plugins/ns:plugin")) {
         my($artifact_id) = $element->getChildrenByTagName('artifactId');
         my($text) = $artifact_id->childNodes();
         if ($text->data eq "apache-rat-plugin") {
@@ -495,7 +495,7 @@ sub fix_pom {
 
     # Handle a special case with maven-compiler-version
     # Add the version
-    foreach my $element ($xpc->findnodes("//ns:build/ns:plugins/ns:plugin")) {
+    foreach my $element ($xpc->findnodes("//ns:build/*/ns:plugins/ns:plugin")) {
         my($artifact_id) = $element->getChildrenByTagName('artifactId');
         my($text) = $artifact_id->childNodes();
         if ($text->data eq "maven-compiler-plugin") {
@@ -523,14 +523,14 @@ sub fix_pom {
 
     # TODO only really need to do the org.apache.felix thing if there is the 
     # problem with the old plugin use as a direct or transitive dependency
-    foreach my $element ($xpc->findnodes("//ns:build/ns:plugins")) {
+    foreach my $element ($xpc->findnodes("//ns:build/*/ns:plugins")) {
         my $plugin = $dom->createElement("plugin");
         my $group_id = $dom->createElement("groupId");
         $group_id->appendText("org.apache.felix");
         my $artifact_id = $dom->createElement("artifactId");
         $artifact_id->appendText("maven-bundle-plugin");
         my $version = $dom->createElement("version");
-        $version->appendText("3.0.0");
+        $version->appendText("5.1.9");
 
         $plugin->addChild($group_id);
         $plugin->addChild($artifact_id);
@@ -541,7 +541,7 @@ sub fix_pom {
 
     # Handle special case
     # If the maven-compiler-plugin isn't already there, add it and add the Java version
-    if (! $xpc->findnodes("//ns:build/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']")) {
+    if (! $xpc->findnodes("//ns:build/*/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']")) {
         print(STDERR "NOT THERE!");
 
         foreach my $element ($xpc->findnodes("//ns:build/ns:plugins")) {
