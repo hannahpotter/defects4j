@@ -183,7 +183,7 @@ sub _init_maven {
     # Construct classpaths for compiling and running source and test code
     my $source_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/source_cp"; 
         #-Dmdep.localRepoProperty=".'\$local_project_path';
-        # TODO make these files more general (not absolute paths/use environment variables?)
+        # TODO make these files more general (not absolute paths/use environment variables?) - make sure pointing to local copies
     Utils::exec_cmd($source_classpath, "Constructing source classpath");
     my $test_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/test_cp";
     Utils::exec_cmd($test_classpath, "Constructing test classpath");

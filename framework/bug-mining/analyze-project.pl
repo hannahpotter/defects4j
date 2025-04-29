@@ -203,7 +203,7 @@ foreach my $bid (@ids) {
     $data{$ISSUE_TRACKER_ID} = $TRACKER_ID;
 
     _check_diff($project, $bid, \%data) and
-    _check_compilation($project, $bid, \%data) or next;# and
+    _check_compilation($project, $bid, \%data) and
     _export_tests($project, $bid, \%data) or next;
     #_check_t2v2($project, $bid, \%data) and
     #_check_t2v1($project, $bid, \%data) or next;
@@ -299,6 +299,8 @@ sub _check_compilation {
                          ." --sourcefiles $project_path/$v1_layout->{src}"
                          ." --target target/classes";
     Utils::exec_cmd($construct_args, "Constructing args file for compiling v1 source.");
+    # Confirm that the args file is correct for compiling v1 source
+    $project->compile("$ARGS_FILES/$bid/args_source_v1.txt") or die;
     my $v2_layout = $project->_determine_layout($v2);
     $construct_args = "python3 $SCRIPTS/construct_javac_args.py"
                          ." --dependency $ANALYZER_OUTPUT/$bid/test_cp"
@@ -309,7 +311,9 @@ sub _check_compilation {
                          ." --sourcefiles $project_path/$v1_layout->{test}"
                          .' --target target/test-classes';
     Utils::exec_cmd($construct_args, "Constructing args file for compiling v2 tests.");
-    
+    # Confirm that the args file is correct for compiling v2 tests
+    $project->compile("$ARGS_FILES/$bid/args_test_v2.txt") or die;
+
     # Checkout v2
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
 
@@ -327,10 +331,12 @@ sub _check_compilation {
                          ." --projectpath $project_path"
                          ." --output $ARGS_FILES/$bid/args_source_v2.txt"
                          .' --classpath target/classes'
-                         ." --sourcepath $v2_layout->{test}"
-                         ." --sourcefiles $project_path/$v2_layout->{test}"
+                         ." --sourcepath $v2_layout->{src}"
+                         ." --sourcefiles $project_path/$v2_layout->{src}"
                          .' --target target/classes';
     Utils::exec_cmd($construct_args, "Constructing args file for compiling v2 source.");
+    # Confirm that the args file is correct for compiling v2 source
+    $project->compile("$ARGS_FILES/$bid/args_source_v2.txt") or die;
 }
 
 #
@@ -360,16 +366,39 @@ sub _export_tests {
     #    java -jar junit-platform-console-standalone-1.11.3.jar execute -cp <classpath-for-the-class-under-test> --select=method:hello.HelloTest#hi
 
 
-    # Run tests with maven first
-    # Animal sniffer is incompatible with Java 11 (the --release flag in javac does the same functionality)
-    # Jacoco is for instrumenting class files to get code coverage reports
-    my $run_tests = "cd $project_path && mvn test -Danimal.sniffer.skip=true -Djacoco.skip=true";
-    my $log;
-    my $ret = Utils::exec_cmd($run_tests, "Running v2 tests with maven.", \$log);
-    if (! $ret) {
-        push(@errors, "--------------------- Error running tests for bug ${bid} --------------------- \n${log}");
-        return 0;
+    my $successful_runs = 0;
+    my $run = 1;
+    while ($successful_runs < $TEST_RUNS && $run <= $MAX_TEST_RUNS) {
+        # Automatically fix broken tests and recompile
+        $project->fix_tests("${bid}f");
+
+        # Run t2 tests with maven and get the number of failing tests
+        # Animal sniffer is incompatible with Java 11 (the --release flag in javac does the same functionality)
+        # Jacoco is for instrumenting class files to get code coverage reports
+        my $run_tests = "cd $project_path && mvn test -Danimal.sniffer.skip=true -Djacoco.skip=true";
+        my $log;
+        my $ret = Utils::exec_cmd($run_tests, "Running v2 tests with maven.", \$log);
+        if (! $ret) {
+            push(@errors, "--------------------- Error running tests for bug ${bid} --------------------- \n${log}");
+            return 0;
+        }
+	
+        # Get number of failing tests
+        my $list = Utils::get_failing_tests("$project_path/target/surefire-reports");
+        my $fail = scalar(@{$list->{"classes"}}) + scalar(@{$list->{"methods"}});
+        if ($run == 1) {
+            $data->{$FAIL_T2V2} = $fail;
+        } else {
+            $data->{$FAIL_T2V2} += $fail;
+        }
+
+        if ($fail == 0) {
+            ++$successful_runs;
+        }
+
+        ++$run;
     }
+
     # Extract test info to run natively
     system("mkdir -p $ARGS_FILES/$bid/test_info");
     my $construct_args = "python3 $SCRIPTS/extract_test_info.py"
@@ -379,42 +408,8 @@ sub _export_tests {
                          ." --classes $project_path/target/classes"
                          ." --testclasses $project_path/target/test-classes";
     Utils::exec_cmd($construct_args, "Extracting test info for t2.");
+    # TODO: Confirm that the results are the same running natively and via Maven
 
-    my $successful_runs = 0;
-    my $run = 20; # TEMP TO SKIP
-    while ($successful_runs < $TEST_RUNS && $run <= $MAX_TEST_RUNS) {
-        # Automatically fix broken tests and recompile
-        $project->fix_tests("${bid}f");
-        $project->compile("$ARGS_FILES/$bid/args_test_v2.txt", "TODELETE.txt") or die;
-
-        # Run t2 and get number of failing tests
-        my $file = "$project->{prog_root}/v2.fail"; `>$file`;
-
-        $project->run_tests($file) or die;
-	
-        # Get number of failing tests
-        #my $list = Utils::get_failing_tests($file);
-        #my $fail = scalar(@{$list->{"classes"}}) + scalar(@{$list->{"methods"}});
-    my $fail = 0;
-        #if ($run == 1) {
-        #    $data->{$FAIL_T2V2} = $fail;
-        #} else {
-        #    $data->{$FAIL_T2V2} += $fail;
-        #}
-
-        ++$successful_runs;
-
-        # Append to log if there were (new) failing tests
-        unless ($fail == 0) {
-            open(OUT, ">>$FAILING_DIR/$v2") or die "Cannot write failing tests: $!";
-            print OUT "## $project->{prog_name}: $v2 ##\n";
-            close OUT;
-            system("cat $file >> $FAILING_DIR/$v2");
-            $successful_runs = 0;
-        }
-
-        ++$run;
-    }
     return 1;
 }
 

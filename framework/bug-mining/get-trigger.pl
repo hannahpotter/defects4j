@@ -196,7 +196,6 @@ foreach my $bid (@bids) {
     $list = _run_tests_isolation("$TMP_DIR/v2", $list, $EXPECT_PASS);
     $data{$PASS_ISO_V2} = scalar(@$list);
     print "List of test methods: (passed in isolation on v2)\n" . join ("\n", @$list) . "\n";
-
     # Run triggering test(s) in isolation on v1 -> tests should fail. Any test not
     # failing is excluded from further processing.
     $list = _run_tests_isolation("$TMP_DIR/v1", $list, $EXPECT_FAIL);
@@ -284,20 +283,20 @@ sub _get_bug_ids {
 sub _get_failing_tests {
     my ($project, $root, $vid) = @_;
 
-    # Clean output file
-    system(">$FAILED_TESTS_FILE");
     $project->{prog_root} = $root;
 
     $project->checkout_vid($vid, $root, 1) or die;
 
     # Compile src and test
-    $project->compile() or die;
-    $project->compile_tests() or die;
+    my $check_compile = "cd $root && mvn compile";
+    Utils::exec_cmd($check_compile, "Checking that source compiles with maven.") or die;
 
     # Run tests and get number of failing tests
-    $project->run_tests($FAILED_TESTS_FILE) or die;
+    my $run_tests = "cd $root && mvn test -Danimal.sniffer.skip=true -Djacoco.skip=true";
+    # Don't "die" here if there are failing tests
+    Utils::exec_cmd($run_tests, "Running tests with maven.");
     # Return failing tests
-    return Utils::get_failing_tests($FAILED_TESTS_FILE);
+    return Utils::get_failing_tests("$root/target/surefire-reports");
 }
 
 #
@@ -313,10 +312,14 @@ sub _run_tests_isolation {
     my @succeeded_tests = ();
 
     foreach my $test (@$list) {
-        # Clean single test output
         system(">$FAILED_TESTS_FILE_SINGLE");
-        $project->run_tests($FAILED_TESTS_FILE_SINGLE, $test) or die;
-        my $fail = Utils::get_failing_tests($FAILED_TESTS_FILE_SINGLE);
+        # Run tests and get number of failing tests
+        my $run_tests = "cd $root && mvn -Dtest=$test clean test -Danimal.sniffer.skip=true -Djacoco.skip=true";
+        # Don't "die" here if there are failing tests
+        Utils::exec_cmd($run_tests, "Running $test with maven.");
+        my $fail = Utils::get_failing_tests("$root/target/surefire-reports", $FAILED_TESTS_FILE_SINGLE);
+        my $num_failed = scalar(@{$fail->{methods}});
+        print(STDERR "FAILED: $num_failed\n");
         if (scalar(@{$fail->{methods}}) == $expect_fail) {
             push @succeeded_tests, $test;
             system("cat $FAILED_TESTS_FILE_SINGLE >> $FAILED_TESTS_FILE"); # save results of single test to overall file.

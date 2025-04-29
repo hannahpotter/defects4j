@@ -1,6 +1,10 @@
 import argparse
 from path_utils import *
-    
+
+# TODO get the arguments used in the maven build file
+# <javac> in compile and compile-tests
+# Get the encoding and the d
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--dependency', type=file_path)
 parser.add_argument('--projectpath', type=dir_path)
@@ -15,7 +19,7 @@ f = open(args.dependency, "r")
 dependency_path = f.readline()
 dependency_path = "" if not dependency_path else ":" + dependency_path
 f.close()
-files = get_all_files(args.sourcefiles)
+files = get_all_files(args.sourcefiles, ".java")
 src_path = []
 for path in files:
     src_path.append(path.replace(args.projectpath + "/", ""))
@@ -32,5 +36,6 @@ f = open(args.output, "w")
 f.write("-classpath " + classpath + "\n")
 f.write("-sourcepath " + args.sourcepath + "\n")
 f.write("-d " + args.target + "\n")
+f.write("-encoding ISO8859_1\n")
 f.write(sources)
 f.close()

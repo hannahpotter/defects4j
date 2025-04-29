@@ -691,7 +691,8 @@ all tests listed in F<$PROJECTS_DIR/$PID/failing_tests/rev-id> are removed.
 sub fix_tests {
     @_ == 2 or die $ARG_ERROR;
     my ($self, $vid) = @_;
-    Utils::check_vid($vid);
+    my $result = Utils::check_vid($vid);
+    my $bid   = $result->{bid};
 
     my $pid = $self->{pid};
     my $dir = $self->test_dir($vid);
@@ -700,7 +701,7 @@ sub fix_tests {
     # -> The bug-mining script that populates the database should deal with any
     # ID conversions.
     my $revision_id = $self->lookup($vid);
-    my $failing_tests_file = "$PROJECTS_DIR/$pid/failing_tests/$revision_id";
+    my $failing_tests_file = "$PROJECTS_DIR/$pid/args_files/$bid/test_info/failing.txt";
     if (-e $failing_tests_file) {
         $self->exclude_tests_in_file($failing_tests_file, $dir);
     }

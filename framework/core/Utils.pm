@@ -461,7 +461,7 @@ sub fix_pom {
     # TODO generalize the special cases to have something like the patterns files
     # Handle a special case with rat checks
     # If the rat checks is used, ignore the added defects4j files
-    foreach my $element ($xpc->findnodes("//ns:build/*/ns:plugins/ns:plugin")) {
+    foreach my $element ($xpc->findnodes("//ns:build/ns:plugins/ns:plugin | //ns:build/*/ns:plugins/ns:plugin")) {
         my($artifact_id) = $element->getChildrenByTagName('artifactId');
         my($text) = $artifact_id->childNodes();
         if ($text->data eq "apache-rat-plugin") {
@@ -495,7 +495,12 @@ sub fix_pom {
 
     # Handle a special case with maven-compiler-version
     # Add the version
-    foreach my $element ($xpc->findnodes("//ns:build/*/ns:plugins/ns:plugin")) {
+    # TODO Issue here (and for all the other ones like this) - need to match on both 
+    # //ns:build/ns:plugins/ns:plugin
+    # OR
+    # //ns:build/*/ns:plugins/ns:plugin )) {
+
+    foreach my $element ($xpc->findnodes('//ns:plugins/ns:plugin | //ns:build/*/ns:plugins/ns:plugin')) {
         my($artifact_id) = $element->getChildrenByTagName('artifactId');
         my($text) = $artifact_id->childNodes();
         if ($text->data eq "maven-compiler-plugin") {
@@ -523,7 +528,7 @@ sub fix_pom {
 
     # TODO only really need to do the org.apache.felix thing if there is the 
     # problem with the old plugin use as a direct or transitive dependency
-    foreach my $element ($xpc->findnodes("//ns:build/*/ns:plugins")) {
+    foreach my $element ($xpc->findnodes("//ns:build/ns:plugins | //ns:build/*/ns:plugins")) {
         my $plugin = $dom->createElement("plugin");
         my $group_id = $dom->createElement("groupId");
         $group_id->appendText("org.apache.felix");
@@ -541,12 +546,15 @@ sub fix_pom {
 
     # Handle special case
     # If the maven-compiler-plugin isn't already there, add it and add the Java version
-    if (! $xpc->findnodes("//ns:build/*/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']")) {
+    if (! $xpc->findnodes("//ns:build/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin'] ".
+                         " | //ns:build/*/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']")) {
         print(STDERR "NOT THERE!");
 
-        foreach my $element ($xpc->findnodes("//ns:build/ns:plugins")) {
+        foreach my $element ($xpc->findnodes("//ns:build/ns:plugins | //ns:build/*/ns:plugins")) {
             print(STDERR "PLUGINS");
             my $plugin = $dom->createElement("plugin");
+            my $group_id = $dom->createElement("groupId"); 
+            $group_id->appendText("org.apache.maven.plugins");
             my $artifact_id = $dom->createElement("artifactId"); 
             $artifact_id->appendText("maven-compiler-plugin");
             my $version = $dom->createElement("version");
@@ -557,7 +565,9 @@ sub fix_pom {
             $release->appendText("11");
 
             $configuration->addChild($release);
+            $plugin->addChild($group_id);
             $plugin->addChild($artifact_id);
+            $plugin->addChild($version);
             $plugin->addChild($configuration);
             $element->addChild($plugin);
 
@@ -847,11 +857,12 @@ sub has_failing_tests {
 
 =pod
 
-=item C<Utils::get_failing_tests(test_result_file)>
+=item C<Utils::get_failing_tests(test_result_file [, output_file])>
 
 Determines all failing test classes and test methods in F<test_result_file>,
 which may contain arbitrary lines. A line indicating a test failure matches the
 following pattern: C</--- ([^:]+)(::([^:]+))?/>.
+If C<output_file> is provided, the failing test info is saved to the file.
 
 This subroutine returns a reference to a hash that contains three keys (C<classes>,
 C<methods>, and C<asserts>), which map to lists of failing tests:
@@ -863,50 +874,64 @@ C<methods>, and C<asserts>), which map to lists of failing tests:
 =cut
 
 sub get_failing_tests {
-    @_ == 1 or die $ARG_ERROR;
-    my ($file_name) = @_;
+    @_ >= 1 or die $ARG_ERROR;
+    my ($folder_name, $output_file) = @_;
 
     my $list = {
         classes => [],
         methods => [],
         asserts => {}
     };
-    open FILE, $file_name or die "Cannot open test result file ($file_name): $!";
-    my @lines = <FILE>;
-    close FILE;
-    for (my $i=0; $i <= $#lines; ++$i) {
-        local $_ = $lines[$i];
-        chomp;
-        /--- ([^:]+)(::([^:]+))?/ or next;
-        my $class = $1;
-        my $method= $3;
-        if (defined $method) {
-            push(@{$list->{methods}}, "${class}::$method");
-            # Read first line of stack trace to determine the failure reason.
-            my $reason = $lines[$i+1];
-            if (defined $reason and $reason =~ /junit.framework.AssertionFailedError/) {
-                $class =~ /(.*\.)?([^.]+)/ or die "Couldn't determine class name: $class!";
-                my $classname = $2;
-                ++$i;
-                while ($lines[$i] !~ /---/) {
-                    if ($lines[$i] =~ /junit\./) {
-                        # Skip junit entries in the stack trace
-                        ++$i;
-                    } elsif ($lines[$i] =~ /$classname\.java:(\d+)/) {
-                        # We found the right entry in the stack trace
-                        my $line = $1;
-                        $list->{asserts}->{"${class}::$method"} = $line;
-                        last;
-                    } else {
-                        # The stack trace isn't what we expected -- give up and continue
-                        # with the next triggering test
-                        last;
+
+    # No test results yet
+    if (!(-d $folder_name)) {
+        return $list;
+    }
+
+    my $fh;
+    if (defined $output_file) {
+        open($fh, '>', "$output_file") or die "Cannot open file to write $output_file";                  
+    }
+
+    opendir my($dirhandle), $folder_name;
+
+    my @files = grep { /\.xml$/ } readdir $dirhandle;
+    foreach my $file (@files) {
+        my $dom = XML::LibXML->load_xml(location => "$folder_name/$file") or die("Cannot read the xml file: $file");
+        foreach my $test_suite ($dom->findnodes('//testsuite')) {
+            my $num_tests = scalar($test_suite->getAttribute('tests'));
+            my $errors = scalar($test_suite->getAttribute('errors'));
+            my $skipped = scalar($test_suite->getAttribute('skipped'));
+            my $failures = scalar($test_suite->getAttribute('failures'));
+
+            my $class = $test_suite->getAttribute('name');
+
+            # TODO when would just have a class?
+            #if ($num_tests == ($errors + $skipped + $failures)) {
+            #    push(@{$list->{classes}}, $class);
+            #} else {
+                my $found = 0;
+                # Find the test cases with errors
+                foreach my $test_case_error ($test_suite->findnodes('./testcase/failure '
+                                                                 .'| ./testcase/rerunFailure '
+                                                                 .'| ./testcase/flakyFailure '
+                                                                 .'| ./testcase/error '
+                                                                 .'| ./testcase/rerunError '
+                                                                 .'| ./testcase/flakyError')) {
+                    my $method = $test_case_error->getParentNode->getAttribute('name');
+                    print(STDERR "FAILING: ${class}#$method\n");
+                    push(@{$list->{methods}}, "${class}#$method");
+                    # TODO get info about asserts?
+
+                    if (defined $output_file) {
+                        print $fh "$test_case_error->getParentNode\n";
                     }
                 }
-            }
-        } else {
-            push(@{$list->{classes}}, $class);
+            #}
         }
+    }
+    if (defined $output_file) {
+        close $fh;
     }
     return $list;
 }

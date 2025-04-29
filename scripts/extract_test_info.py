@@ -15,7 +15,9 @@ reports = get_all_files(args.reports, extension = ".xml")
 
 testcases = open(os.path.join(args.output, "testcases.txt"), "w")
 testsuites = open(os.path.join(args.output, "testsuites.txt"), "w")
-removed = open(os.path.join(args.output, "removed.txt"), "w")
+failing = open(os.path.join(args.output, "failing.txt"), "w")
+sysout = open(os.path.join(args.output, "sysout.txt"), "w")
+skipped = open(os.path.join(args.output, "skipped.txt"), "w")
 testsuite_names = []
 # https://www.geeksforgeeks.org/xml-parsing-python/
 for file in reports:
@@ -30,17 +32,35 @@ for file in reports:
             testsuite_names.append(root.get("name"))
     # Record test cases
     # Format: <test_class>#<test_method>
+    # https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report.xsd
     for testcase in root.findall("testcase"):
-        # If the testcase element has a child element, the test failed, had an error, or was skipped
-        if len(testcase):
-            removed.write(" ---------- " + testcase.get("classname") + "#" + testcase.get("name") + " ----------\n")
+        # Failing tests
+        if len(testcase.findall("failure")) or len(testcase.findall("rerunFailure")) or len(testcase.findall("flakyFailure")) or len(testcase.findall("error")) or len(testcase.findall("rerunError")) or len(testcase.findall("flakyError")):
+            failing.write("--- " + testcase.get("classname") + "::" + testcase.get("name") + "\n")
             for child in testcase:
-                removed.write(ET.tostring(child, encoding="unicode") + "\n")
-        else:
-            testcases.write(testcase.get("classname") + "#" + testcase.get("name") + "\n")
+                failing.write(ET.tostring(child, encoding="unicode") + "\n")
+
+        # System output
+        if len(testcase.findall("system-err")) or len(testcase.findall("system-out")):
+            sysout.write("--- " + testcase.get("classname") + "#" + testcase.get("name") + "\n")
+            for child in testcase:
+                sysout.write(ET.tostring(child, encoding="unicode") + "\n")
+
+        # Skipped test cases
+        if len(testcase.findall("skipped")):
+            skipped.write("--- " + testcase.get("classname") + "#" + testcase.get("name") + "\n")
+            for child in testcase:
+                skipped.write(ET.tostring(child, encoding="unicode") + "\n")
+
+        # TODO error/warn if new kind of child element
+
+        testcases.write(testcase.get("classname") + "#" + testcase.get("name") + "\n")
 
 testcases.close()
 testsuites.close()
+failing.close()
+sysout.close()
+skipped.close()
 
 f = open(args.dependency, "r")
 dependency_path = f.readline()
@@ -59,9 +79,11 @@ for dependency in dependency_path.split(":"):
     match = re.search(r"junit-[\d*.]+", dependency)
     if match:
         version.write(match.group(0)[6])
+        version.close()
+        exit()
     # Match for JUnit 5
     match = re.search(r"junit-jupiter", dependency)
     if match:
         version.write(str(5))
-
-version.close()
+        version.close()
+        exit()
