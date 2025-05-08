@@ -68,6 +68,7 @@ use File::Basename;
 use Cwd qw(abs_path);
 use Getopt::Std;
 use Pod::Usage;
+use Carp qw(confess);
 
 use lib (dirname(abs_path(__FILE__)) . "/../core/");
 use Constants;
@@ -102,16 +103,15 @@ $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 my $PROJECT_DIR = "$PROJECTS_DIR/$PID";
 my $PATCH_DIR   = "$PROJECT_DIR/patches";
 my $ANALYZER_OUTPUT = "$PROJECT_DIR/analyzer_output";
-my $GEN_BUILDFILE_DIR = "$PROJECT_DIR/build_files";
 my $DEPENDENCIES = "$PROJECT_DIR/lib/dependency";
-
-# Keep list of errors so user can see and resolve all at once
-my @errors = ();
 
 -d $PROJECT_DIR or die "$PROJECT_DIR does not exist: $!";
 -d $PATCH_DIR or die "$PATCH_DIR does not exist: $!";
 
-system("mkdir -p $ANALYZER_OUTPUT $GEN_BUILDFILE_DIR $DEPENDENCIES");
+system("mkdir -p $ANALYZER_OUTPUT $DEPENDENCIES");
+
+# DB_CSVs directory
+my $db_dir = $WORK_DIR;
 
 # Temporary directory
 my $TMP_DIR = Utils::get_tmp_dir();
@@ -119,6 +119,10 @@ system("mkdir -p $TMP_DIR");
 
 # Set up project
 my $project = Project::create_project($PID);
+
+# Get database handle for results
+my $dbh = DB::get_db_handle($TAB_BOOTSTRAP, $db_dir);
+my @COLS = DB::get_tab_columns($TAB_BOOTSTRAP) or die;
 
 #
 # Initialize a specific version id.
@@ -142,13 +146,9 @@ sub _init_version {
 
     system("mkdir -p $ANALYZER_OUTPUT/$bid");
 
-    if (! _init_maven($work_dir, $bid, $rev_id)) {
-        return ("", "", "");
-    }
-
     $project->initialize_revision($rev_id, "${vid}");
 
-    return ($rev_id, $project->src_dir("${vid}"), $project->test_dir("${vid}"));
+    return ($rev_id, $work_dir, $project->src_dir("${vid}"), $project->test_dir("${vid}"));
 }
 
 #
@@ -157,22 +157,20 @@ sub _init_version {
 sub _init_maven {
     my ($work_dir, $bid, $rev_id) = @_;
 
-    if (! -e "$work_dir/pom.xml") { return 0; }
-
-    # If both pom.xml and build.xml are present, rely on the pom.xml.
-    if (-e "$work_dir/build.xml") {
-        rename("$work_dir/build.xml", "$work_dir/build.xml.orig") or die "Cannot backup existing Ant build file: $!";
+    if (! -e "$work_dir/pom.xml") {         
+        system("echo \"--------------------- Error with revision ${rev_id} --------------------- \nNo pom file\" >> $ANALYZER_OUTPUT/INITIALIZE_REVISIONS.txt");
+        return 0; 
     }
 
     # Update the pom.xml to update pom elements.
     Utils::fix_dependency_urls("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_urls.patterns", 1) if -e "$work_dir/pom.xml";
-    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns") if -e "$work_dir/pom.xml";
+    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns") if -e "$work_dir/pom.xml";
 
     # Check for dependencies that can't be resolved
     my $check_dep = "cd $work_dir && mvn dependency:resolve";
     my $log;
     if (! Utils::exec_cmd($check_dep, "Checking dependencies for pom.xml.", \$log)) {
-        push(@errors, "--------------------- Error with bug ${bid} --------------------- \n${log}");
+        system("echo \"--------------------- Error with revision ${rev_id} --------------------- \nError with dependencies\n${log}\" >> $ANALYZER_OUTPUT/INITIALIZE_REVISIONS.txt");
         return 0;
     }
 
@@ -181,12 +179,53 @@ sub _init_maven {
     Utils::exec_cmd($copy_dep, "Copying dependencies for pom.xml.");
 
     # Construct classpaths for compiling and running source and test code
-    my $source_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/source_cp"; 
-        #-Dmdep.localRepoProperty=".'\$local_project_path';
-        # TODO make these files more general (not absolute paths/use environment variables?) - make sure pointing to local copies
+    my $source_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/source_cp -Dmdep.localRepoProperty=".'\$LOCAL_DEPENDENCY_PATH';
     Utils::exec_cmd($source_classpath, "Constructing source classpath");
-    my $test_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/test_cp";
+    my $test_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/test_cp -Dmdep.localRepoProperty=".'\$LOCAL_DEPENDENCY_PATH';
     Utils::exec_cmd($test_classpath, "Constructing test classpath");
+
+    return 1;
+}
+
+#
+# Read a file line by line and return an array with all lines.
+#
+sub _read_file {
+    my $fn = shift;
+    open(FH, "<$fn") or confess "Could not open file: $!";
+    my @lines = <FH>;
+    close(FH);
+    return join('', @lines);
+}
+
+#
+# Check size of src diff for a given candidate bug (bid).
+#
+# Returns 1 on success, 0 otherwise
+#
+sub _check_diff {
+    my ($project, $bid, $data) = @_;
+
+    # Determine patch size for src and test patches (rev2 -> rev1)
+    my $patch_test = "$PATCH_DIR/$bid.test.patch";
+    my $patch_src = "$PATCH_DIR/$bid.src.patch";
+
+    if (!(-e $patch_test) || (-z $patch_test)) {
+        $data->{$DIFF_TEST} = 0;
+    } else {
+        my $diff = _read_file($patch_test);
+        die unless defined $diff;
+        $data->{$DIFF_TEST} = scalar(split("\n", $diff));
+    }
+
+    if (-z $patch_src) {
+        $data->{$DIFF_SRC} = 0;
+        return 0;
+    } else {
+        my $diff = _read_file($patch_src);
+        die unless defined $diff;
+        $data->{$DIFF_SRC} = scalar(split("\n", $diff)) or return 0;
+    }
 
     return 1;
 }
@@ -196,10 +235,10 @@ sub _init_maven {
 # routine creates these artifacts, if necessary.
 #
 sub _bootstrap {
-    my ($project, $bid) = @_;
+    my ($data, $project, $bid) = @_;
 
-    my ($v1, $src_b, $test_b) = _init_version($project, $bid, "${bid}b");
-    my ($v2, $src_f, $test_f) = _init_version($project, $bid, "${bid}f");
+    my ($v1, $work_dir_b, $src_b, $test_b) = _init_version($project, $bid, "${bid}b");
+    my ($v2, $work_dir_f, $src_f, $test_f) = _init_version($project, $bid, "${bid}f");
     if ($v1 eq "" || $v2 eq "") {
         return 0;
     }
@@ -212,7 +251,19 @@ sub _bootstrap {
     $project->export_diff($v2, $v1, "$PATCH_DIR/$bid.src.patch", "$src_f");
     $project->export_diff($v2, $v1, "$PATCH_DIR/$bid.test.patch", "$test_f");
 
-    return 1;
+    # Defects4J cannot handle empty patch files -> filter out these candidates.
+    if (! _check_diff($project, $bid, $data)) {
+        printf("      -> Skipping - empty patch\n");
+        $data->{$BOOTSTRAPPED} = 0;
+        return 0;
+    }
+
+    my $maven_success = _init_maven($work_dir_b, $bid, $v1) && _init_maven($work_dir_f, $bid, $v2);
+    if (! $maven_success) {
+        printf("      -> Skipping - error with bug\n");
+    }
+    $data->{$BOOTSTRAPPED} = $maven_success;
+    return $maven_success;
 }
 
 my @ids = $project->get_bug_ids();
@@ -225,22 +276,44 @@ if (defined $BID) {
     }
 }
 
+#
+# Add a row to the database table
+#
+sub _add_row {
+    my $data = shift;
+
+    my @tmp;
+    foreach (@COLS) {
+        push (@tmp, $dbh->quote((defined $data->{$_} ? $data->{$_} : "-")));
+    }
+
+    my $row = join(",", @tmp);
+    $dbh->do("INSERT INTO $TAB_BOOTSTRAP VALUES ($row)");
+}
+
+# Clean up previous log files
+system("rm -f $ANALYZER_OUTPUT/INITIALIZE_REVISIONS.txt");
+my $sth = $dbh->prepare("SELECT * FROM $TAB_BOOTSTRAP WHERE $PROJECT=? AND $ID=?") or die $dbh->errstr;
 foreach my $bid (@ids) {
     printf ("%4d: $project->{prog_name}\n", $bid);
+
+    # Skip existing entries
+    $sth->execute($PID, $bid);
+    if ($sth->rows !=0) {
+        printf("      -> Skipping (existing entry in $TAB_BOOTSTRAP)\n");
+        next;
+    }
 
     # Clean up previously generated data
     system("rm -rf $ANALYZER_OUTPUT/${bid} $PATCH_DIR/${bid}.src.patch $PATCH_DIR/${bid}.test.patch");
 
+    my %data;
+    $data{$PROJECT} = $PID;
+    $data{$ID} = $bid;
     # Populate the layout map and patches directory
-    if (! _bootstrap($project, $bid)) {
-        printf("      -> Skipping - error with bug\n");
-        next;
-    }
-
-    # Defects4J cannot handle empty patch files -> skip the sanity check since
-    # these candidates are filtered in a later step anyway.
-    if (-z "$PATCH_DIR/$bid.src.patch") {
-        printf("      -> Skipping sanity check (empty source patch)\n");
+    my $bootstrap_success = _bootstrap(\%data, $project, $bid);
+    _add_row(\%data);
+    if (! $bootstrap_success) {
         next;
     }
 
@@ -251,10 +324,5 @@ foreach my $bid (@ids) {
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) or die "Cannot checkout fixed version";
     #$project->sanity_check();
 }
-
-my $numErrors = @errors;
-if ($numErrors > 0) {
-    my $msg = join("\n", @errors);
-    system("echo \"There are $numErrors bugs with issues: \n $msg\"");
-}
+$dbh->disconnect();
 system("rm -rf $TMP_DIR") unless $DEBUG;
