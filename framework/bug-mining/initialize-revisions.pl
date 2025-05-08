@@ -110,6 +110,9 @@ my $DEPENDENCIES = "$PROJECT_DIR/lib/dependency";
 
 system("mkdir -p $ANALYZER_OUTPUT $DEPENDENCIES");
 
+# Keep log of issues
+my $LOG = "$PROJECT_DIR/initialize_revisions_error_log.txt";
+
 # DB_CSVs directory
 my $db_dir = $WORK_DIR;
 
@@ -158,7 +161,7 @@ sub _init_maven {
     my ($work_dir, $bid, $rev_id) = @_;
 
     if (! -e "$work_dir/pom.xml") {         
-        system("echo \"--------------------- Error with revision ${rev_id} --------------------- \nNo pom file\" >> $ANALYZER_OUTPUT/INITIALIZE_REVISIONS.txt");
+        system("echo \"--------------------- Error with revision ${rev_id} --------------------- \nNo pom file\n\n\" >> $LOG");
         return 0; 
     }
 
@@ -170,7 +173,7 @@ sub _init_maven {
     my $check_dep = "cd $work_dir && mvn dependency:resolve";
     my $log;
     if (! Utils::exec_cmd($check_dep, "Checking dependencies for pom.xml.", \$log)) {
-        system("echo \"--------------------- Error with revision ${rev_id} --------------------- \nError with dependencies\n${log}\" >> $ANALYZER_OUTPUT/INITIALIZE_REVISIONS.txt");
+        system("echo \"--------------------- Error with revision ${rev_id} --------------------- \nError with dependencies\n${log}\n\n\" >> $LOG");
         return 0;
     }
 
@@ -179,9 +182,9 @@ sub _init_maven {
     Utils::exec_cmd($copy_dep, "Copying dependencies for pom.xml.");
 
     # Construct classpaths for compiling and running source and test code
-    my $source_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/source_cp -Dmdep.localRepoProperty=".'\$LOCAL_DEPENDENCY_PATH';
+    my $source_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/source_cp -Dmdep.localRepoProperty=".'{LOCAL_DEPENDENCY_PATH}';
     Utils::exec_cmd($source_classpath, "Constructing source classpath");
-    my $test_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/test_cp -Dmdep.localRepoProperty=".'\$LOCAL_DEPENDENCY_PATH';
+    my $test_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/test_cp -Dmdep.localRepoProperty=".'{LOCAL_DEPENDENCY_PATH}';
     Utils::exec_cmd($test_classpath, "Constructing test classpath");
 
     return 1;
@@ -292,7 +295,7 @@ sub _add_row {
 }
 
 # Clean up previous log files
-system("rm -f $ANALYZER_OUTPUT/INITIALIZE_REVISIONS.txt");
+system("rm -f $LOG");
 my $sth = $dbh->prepare("SELECT * FROM $TAB_BOOTSTRAP WHERE $PROJECT=? AND $ID=?") or die $dbh->errstr;
 foreach my $bid (@ids) {
     printf ("%4d: $project->{prog_name}\n", $bid);

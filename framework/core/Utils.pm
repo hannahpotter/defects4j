@@ -431,8 +431,8 @@ Parses the F<build_file> and performs necessary replacements.
 
 =cut
 sub fix_pom {
-    @_ == 2 || die $ARG_ERROR;
-    my ($build_file, $pattern_file) = @_;
+    @_ == 3 || die $ARG_ERROR;
+    my ($build_file, $pattern_file, $plugin_file) = @_;
 
     my $dom = XML::LibXML->load_xml(location => $build_file) or die("Cannot read the build file: $build_file");
     my $root_ns = $dom->documentElement->namespaceURI;
@@ -449,7 +449,6 @@ sub fix_pom {
         chomp($l);
         $l =~ /([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <find>,<change>)");
         my ($find, $change, $r_or_a) = split(",", $l);
-        my $found = 0;
         foreach my $element ($xpc->findnodes($find)) {
             print(STDERR "Pattern matches in build file ($build_file): $find\n") if $DEBUG;
             $modified = 1;
@@ -457,6 +456,62 @@ sub fix_pom {
             $element->appendText($change);
         }
     } 
+
+    open(IN, "<$plugin_file") or die("Cannot read pattern file: $plugin_file");
+    @patterns = <IN>;
+    close(IN);
+    # Read all elements; skip comments
+    foreach my $l (@patterns) {
+        $l =~ /^\s*#/ and next;
+        chomp($l);
+        $l =~ /([^,]+),([^,]+),([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <groupId>,<artifactId>,<childPath>,<newXMLElement>)");
+        my ($updateGroupId, $updateArtifactId, $updateChildPath, $change) = split(",", $l);
+        my $plugin;
+        # Find the plugin if it is already in the pom file
+        foreach my $element ($xpc->findnodes("//ns:build/ns:plugins/ns:plugin | //ns:build/*/ns:plugins/ns:plugin")) {
+            my($artifact_id_node) = $element->getChildrenByTagName('artifactId');
+            my($artifact_id) = $artifact_id_node->childNodes();
+            my $plugin;
+            if ($artifact_id->data eq $updateArtifactId) {
+                print(STDERR "$updateArtifactId plugin is already used\n") if $DEBUG;
+                $plugin = $element;
+                last;
+            } 
+        }
+        # If the plugin is not already in the pom file, add it
+        if (!$plugin) {
+            $plugin = $dom->createElement("plugin");
+
+            my $group_id = $dom->createElement("groupId"); 
+            $group_id->appendText($updateGroupId);
+            my $artifact_id = $dom->createElement("artifactId"); 
+            $artifact_id->appendText($updateArtifactId);
+            $plugin->addChild($group_id);
+            $plugin->addChild($artifact_id);
+
+            foreach my $element ($xpc->findnodes("//ns:build/ns:plugins | //ns:build/*/ns:plugins")) {
+                $element->addChild($plugin);
+            }
+        }
+
+        # Find the element at the child path if it exists, otherwise create it
+        my @pathPieces = split("/", $updateChildPath);
+        my $previousChild = $plugin;
+        foreach my $tag (@pathPieces) {
+            my($currentChild) = $previousChild->getChildrenByTagName($tag);
+            # Add the child element if it does not already exist
+            if (!$currentChild) {
+                $currentChild = $dom->createElement($tag);
+                $previousChild->addChild($currentChild);
+            }
+
+            $previousChild = $currentChild;
+        }
+
+        $previousChild->removeChildNodes();
+        $previousChild->appendText($change);
+        $modified=1;
+    }
 
     # TODO generalize the special cases to have something like the patterns files
     # Handle a special case with rat checks
@@ -500,31 +555,31 @@ sub fix_pom {
     # OR
     # //ns:build/*/ns:plugins/ns:plugin )) {
 
-    foreach my $element ($xpc->findnodes('//ns:plugins/ns:plugin | //ns:build/*/ns:plugins/ns:plugin')) {
-        my($artifact_id) = $element->getChildrenByTagName('artifactId');
-        my($text) = $artifact_id->childNodes();
-        if ($text->data eq "maven-compiler-plugin") {
-            print(STDERR "MAVEN COMPILER PLUGIN\n");
+    #foreach my $element ($xpc->findnodes('//ns:plugins/ns:plugin | //ns:build/*/ns:plugins/ns:plugin')) {
+    #  my($artifact_id) = $element->getChildrenByTagName('artifactId');
+    #    my($text) = $artifact_id->childNodes();
+    #    if ($text->data eq "maven-compiler-plugin") {
+    #        print(STDERR "MAVEN COMPILER PLUGIN\n");
 
-            my($version) = $element->getChildrenByTagName("version");
-            if (! $version) {
-                my $new_version = $dom->createElement("version");
-                $new_version->appendText("3.8.0");
-                $element->addChild($new_version);
-            }
+    #        my($version) = $element->getChildrenByTagName("version");
+    #        if (! $version) {
+    #            my $new_version = $dom->createElement("version");
+    #            $new_version->appendText("3.8.0");
+    #            $element->addChild($new_version);
+    #        }
 
-            my($configuration) = $element->getChildrenByTagName('configuration');
-            if (! $configuration) {
-                $configuration = $dom->createElement("configuration");
-            } 
-            my $release = $dom->createElement("release");
-            $release->appendText("11");
-            $configuration->removeChildNodes();
-            $configuration->addChild($release);
-
-            $modified = 1;
-        }
-    }
+    #        my($configuration) = $element->getChildrenByTagName('configuration');
+    #        if (! $configuration) {
+    #            $configuration = $dom->createElement("configuration");
+    #        } 
+    #        my $release = $dom->createElement("release");
+    #        $release->appendText("11");
+    #        $configuration->removeChildNodes();
+    #        $configuration->addChild($release);
+#
+#            $modified = 1;
+#        }
+#    }*/
 
     # TODO only really need to do the org.apache.felix thing if there is the 
     # problem with the old plugin use as a direct or transitive dependency
@@ -546,34 +601,34 @@ sub fix_pom {
 
     # Handle special case
     # If the maven-compiler-plugin isn't already there, add it and add the Java version
-    if (! $xpc->findnodes("//ns:build/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin'] ".
-                         " | //ns:build/*/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']")) {
-        print(STDERR "NOT THERE!");
+    #if (! $xpc->findnodes("//ns:build/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin'] ".
+    #                     " | //ns:build/*/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']")) {
+    #   print(STDERR "NOT THERE!");
 
-        foreach my $element ($xpc->findnodes("//ns:build/ns:plugins | //ns:build/*/ns:plugins")) {
-            print(STDERR "PLUGINS");
-            my $plugin = $dom->createElement("plugin");
-            my $group_id = $dom->createElement("groupId"); 
-            $group_id->appendText("org.apache.maven.plugins");
-            my $artifact_id = $dom->createElement("artifactId"); 
-            $artifact_id->appendText("maven-compiler-plugin");
-            my $version = $dom->createElement("version");
-            $version->appendText("3.8.0");
-            # TODO need to make sure maven-compiler-plugin is always this version
-            my $configuration = $dom->createElement("configuration");
-            my $release = $dom->createElement("release");
-            $release->appendText("11");
+    #    foreach my $element ($xpc->findnodes("//ns:build/ns:plugins | //ns:build/*/ns:plugins")) {
+    #        print(STDERR "PLUGINS");
+    #        my $plugin = $dom->createElement("plugin");
+    #        my $group_id = $dom->createElement("groupId"); 
+    #        $group_id->appendText("org.apache.maven.plugins");
+    #        my $artifact_id = $dom->createElement("artifactId"); 
+    #        $artifact_id->appendText("maven-compiler-plugin");
+    #        my $version = $dom->createElement("version");
+    #        $version->appendText("3.8.0");
+    #        # TODO need to make sure maven-compiler-plugin is always this version
+    #        my $configuration = $dom->createElement("configuration");
+    #        my $release = $dom->createElement("release");
+    #        $release->appendText("11");#
 
-            $configuration->addChild($release);
-            $plugin->addChild($group_id);
-            $plugin->addChild($artifact_id);
-            $plugin->addChild($version);
-            $plugin->addChild($configuration);
-            $element->addChild($plugin);
+     #       $configuration->addChild($release);
+     #       $plugin->addChild($group_id);
+     #       $plugin->addChild($artifact_id);
+     #       $plugin->addChild($version);
+     #       $plugin->addChild($configuration);
+     #       $element->addChild($plugin);
 
-            $modified = 1;
-        }
-    }
+     #       $modified = 1;
+     #   }
+    #}*/
     
     # Update the build file if necessary
     if ($modified) {
@@ -924,7 +979,8 @@ sub get_failing_tests {
                     # TODO get info about asserts?
 
                     if (defined $output_file) {
-                        print $fh "$test_case_error->getParentNode\n";
+                        my $test_output = $test_case_error->getParentNode;
+                        print $fh "$test_output\n\n";
                     }
                 }
             #}

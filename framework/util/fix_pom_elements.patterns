@@ -10,7 +10,6 @@
 # Set the correct Java version
 //ns:properties/ns:maven.compiler.source,11
 //ns:properties/ns:maven.compiler.target,11
-//ns:build/*/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']/following-sibling::ns:configuration/ns:source,11
-//ns:build/*/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']/following-sibling::ns:configuration/ns:target,11
-//ns:build/*/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']/following-sibling::ns:version,3.8.0
+#//ns:build/*/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']/following-sibling::ns:configuration/ns:source,11
+#//ns:build/*/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']/following-sibling::ns:configuration/ns:target,11
 # Move the regex ones to this format

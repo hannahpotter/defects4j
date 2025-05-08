@@ -62,6 +62,16 @@ our $DB_DIR = ($ENV{DB_DIR} or "$BASE_DIR/result_db");
 
 =pod
 
+=item C<TAB_BOOTSTRAP>
+
+The name of the database table for the results of bootstrapping all revision pairs (I<bootstrap>)
+
+=cut
+
+our $TAB_BOOTSTRAP = ($ENV{TAB_BOOTSTRAP} or "bootstrap");
+
+=pod
+
 =item C<TAB_REV_PAIRS>
 
 The name of the database table for the results of analyzing all revision pairs (I<rev_pairs>)
@@ -147,11 +157,14 @@ our $TAB_FIX = ($ENV{TAB_FIX} or "fix");
 our $PROJECT       = "project_id";
 our $ID            = "version_id";
 
+# Additional columns of TAB_BOOTSTRAP
+our $DIFF_SRC      = "diff_size_src";
+our $DIFF_TEST     = "diff_size_test";
+our $BOOTSTRAPPED  = "bootstrapped";
+
 # Additional columns of TAB_REV_PAIRS
 our $ISSUE_TRACKER_NAME = "tracker_name";
 our $ISSUE_TRACKER_ID = "tracker_id";
-our $DIFF_SRC      = "diff_size_src";
-our $DIFF_TEST     = "diff_size_test";
 our $COMP_V2       = "compile_v2";
 our $COMP_T2V2     = "compile_t2v2";
 our $FAIL_T2V2     = "num_fail_t2v2";
@@ -198,8 +211,10 @@ our $NUM_FAILING_TESTS             = "num_failing_tests";
 
 # Table definitions
 my %tables = (
+# TAB_BOOTSTRAP
+$TAB_BOOTSTRAP => [$PROJECT, $ID, $DIFF_SRC, $DIFF_TEST, $BOOTSTRAPPED],
 # TAB_REV_PAIRS
-$TAB_REV_PAIRS => [$PROJECT, $ID, $ISSUE_TRACKER_NAME, $ISSUE_TRACKER_ID, $DIFF_SRC, $DIFF_TEST, $COMP_V2, $COMP_T2V2, $FAIL_T2V2, $COMP_V1, $COMP_T2V1, $MIN_SRC, $REVIEW_TESTS],
+$TAB_REV_PAIRS => [$PROJECT, $ID, $ISSUE_TRACKER_NAME, $ISSUE_TRACKER_ID, $COMP_V2, $COMP_T2V2, $FAIL_T2V2, $COMP_V1, $COMP_T2V1, $MIN_SRC, $REVIEW_TESTS],
 # Table TAB_TRIGGER
 $TAB_TRIGGER => [$PROJECT, $ID, $FAIL_V2, $FAIL_C_V1, $FAIL_M_V1, $PASS_ISO_V2, $FAIL_ISO_V1],
 # Table TAB_BUG_DETECTION
@@ -217,6 +232,7 @@ $TAB_FIX => [$PROJECT, $ID, $TEST_SUITE, $TEST_ID, $NUM_UNCOMPILABLE_TESTS, $NUM
 
 ## number of columns making the primary key in each table
 our %PRIMARY_KEYS = (
+    $TAB_BOOTSTRAP => 2,
     $TAB_REV_PAIRS => 2,
     $TAB_TRIGGER => 2,
     $TAB_BUG_DETECTION => 4,
@@ -228,6 +244,7 @@ our %PRIMARY_KEYS = (
 
 our @EXPORT = qw(
 $DB_DIR
+$TAB_BOOTSTRAP
 $TAB_REV_PAIRS
 $TAB_TRIGGER
 $TAB_BUG_DETECTION
@@ -243,6 +260,7 @@ $ISSUE_TRACKER_NAME
 $ISSUE_TRACKER_ID
 $DIFF_SRC
 $DIFF_TEST
+$BOOTSTRAPPED
 $COMP_V2
 $COMP_T2V2
 $FAIL_T2V2

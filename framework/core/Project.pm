@@ -468,7 +468,7 @@ sub checkout_vid {
     for my $build_file (("build.xml", "maven-build.xml", "pom.xml", "project.xml", "project.properties", "default.properties", "maven-build.properties")) {
         Utils::fix_dependency_urls("$work_dir/$build_file", "$UTIL_DIR/fix_dependency_urls.patterns", 0) if -e "$work_dir/$build_file";
     }
-    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns") if -e "$work_dir/pom.xml";
+    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns") if -e "$work_dir/pom.xml";
 
     # Commit and tag the fixed program version
     $tag_name = Utils::tag_prefix($pid, $bid) . $TAG_FIXED;
@@ -527,11 +527,129 @@ sub checkout_vid {
     return 1;
 }
 
+=pod
 
+  $project->construct_javac_args(vid, dependencies, for_src, output)
+
+Construct the javac args for compiling C<vid>. 
+C<dependencies> is the path for the classpaths.
+C<for_src> should be 1 for constructing the args for the src, 0 for the tests.
+C<output> is where the args file should be written to. 
+
+=cut
+
+sub construct_javac_args {
+    @_ == 5 or die $ARG_ERROR;
+    my ($self, $vid, $dependencies, $for_src, $output) = @_;
+
+    open my $args_file, '>', $output;
+
+    # Get the classpath for the dependencies
+    my $classpath = "target/classes";
+    if (! -z $dependencies) {
+        open my $file, '<', $dependencies;
+        $classpath = "$classpath:".<$file>;
+        close $file;
+    }
+    print $args_file "-classpath $classpath\n";
+
+    # Set the sourcepath
+    my $sourcepath = $self->src_dir($vid);
+    print $args_file "-sourcepath $sourcepath\n";
+
+    # Set the target
+    my $target;
+    if ($for_src) {
+        $target = "target/classes";
+    } else {
+        $target = "target/test-classes";
+    }
+    print $args_file "-d $target\n";
+
+    # Set the encoding
+    my $dom = XML::LibXML->load_xml(location => "$self->{prog_root}/pom.xml") or die("Cannot read the build file: $self->{prog_root}/pom.xml");
+    my $root_ns = $dom->documentElement->namespaceURI;
+    my $xpc = XML::LibXML::XPathContext->new($dom);
+    $xpc->registerNs('ns', $root_ns);
+    foreach my $element ($xpc->findnodes("//ns:plugin/ns:artifactId[text()='maven-compiler-plugin']/following-sibling::encoding")) {
+        my($encoding) = $element->childNodes();
+        print $args_file "-encoding $encoding\n";
+    }
+
+    # List the files
+    my $local_path;
+    if ($for_src) {
+        $local_path = $self->src_dir($vid);
+    } else {
+        $local_path = $self->test_dir($vid);
+    }
+    my @list = `cd $self->{prog_root}/$local_path && find . -name "*.java"`;
+    foreach my $file (@list) {
+        $file =~ s/.\//$local_path\//;
+        print $args_file $file;
+    }
+
+    close $output;
+}
 
 =pod
 
-  $project->compile(arg_file [,log_file])
+  $project->mvn_test_compile([log_file])
+
+Compiles the test of the project version that is currently checked out.
+If F<log_file> is provided, the compiler output is written to this file.
+
+=cut
+
+sub mvn_test_compile {
+    @_ >= 1 or die $ARG_ERROR;
+    my ($self, $log_file) = @_;
+
+    my $cmd = " cd $self->{prog_root}" .
+              " && mvn test-compile" .
+              " -Danimal.sniffer.skip=true".
+              "  2>&1";
+    my $log;
+    my $ret = Utils::exec_cmd($cmd, "Running maven compile", \$log);
+
+    if (defined $log_file) {
+        open(OUT, ">>$log_file") or die "Cannot open log file: $!";
+        print(OUT "$log");
+        close(OUT);
+    }
+    return $ret;
+}
+
+=pod
+
+  $project->mvn_compile([log_file])
+
+Compiles the sources of the project version that is currently checked out.
+If F<log_file> is provided, the compiler output is written to this file.
+
+=cut
+
+sub mvn_compile {
+    @_ >= 1 or die $ARG_ERROR;
+    my ($self, $log_file) = @_;
+
+    my $cmd = " cd $self->{prog_root}" .
+              " && mvn compile" .
+              "  2>&1";
+    my $log;
+    my $ret = Utils::exec_cmd($cmd, "Running maven compile", \$log);
+
+    if (defined $log_file) {
+        open(OUT, ">>$log_file") or die "Cannot open log file: $!";
+        print(OUT "$log");
+        close(OUT);
+    }
+    return $ret;
+}
+
+=pod
+
+  $project->compile(arg_file, dependencies [,log_file])
 
 Compiles the sources of the project version that is currently checked out.
 If F<log_file> is provided, the compiler output is written to this file.
@@ -540,7 +658,19 @@ If F<log_file> is provided, the compiler output is written to this file.
 
 sub compile {
     @_ >= 2 or die $ARG_ERROR;
-    my ($self, $arg_file, $log_file) = @_;
+    my ($self, $arg_file, $dependencies, $log_file) = @_;
+
+    # Set the arg file dependencies
+    rename($arg_file, $arg_file . '.bak');
+    open(IN, '<' . $arg_file . '.bak') or die $!;
+    open(OUT, '>' . $arg_file) or die $!;
+    while(<IN>)
+    {
+        $_ =~ s/{LOCAL_DEPENDENCY_PATH}/$dependencies/g;
+        print OUT $_;
+    }
+    close(IN);
+    close(OUT);
 
     my $cmd = " cd $self->{prog_root}" .
               " && javac" .
@@ -548,6 +678,10 @@ sub compile {
               "  2>&1";
     my $log;
     my $ret = Utils::exec_cmd($cmd, "Running javac compile", \$log);
+
+    # Reset the arg file dependencies
+    system("rm -f $arg_file");
+    rename($arg_file . '.bak', $arg_file);
 
     if (defined $log_file) {
         open(OUT, ">>$log_file") or die "Cannot open log file: $!";
@@ -569,6 +703,35 @@ If F<log_file> is provided, the compiler output is written to this file.
 sub compile_tests {
     my ($self, $log_file) = @_;
     return $self->_ant_call_comp("compile.tests", undef, $log_file);
+}
+
+=pod
+
+  $project->run_mvn_tests([log_file])
+
+Executes all developer-written tests in the checked-out program version.
+If F<log_file> is provided, the maven output is written to this file.
+
+=cut
+
+sub run_mvn_tests {
+    @_ >= 1 or die $ARG_ERROR;
+    my ($self, $log_file) = @_;
+
+    # Animal sniffer is incompatible with Java 11 (the --release flag in javac does the same functionality)
+    # Jacoco is for instrumenting class files to get code coverage reports
+    my $cmd = " cd $self->{prog_root}" .
+              " && mvn test -Danimal.sniffer.skip=true -Djacoco.skip=true" .
+              "  2>&1";
+    my $log;
+    my $ret = Utils::exec_cmd($cmd, "Running maven test", \$log);
+
+    if (defined $log_file) {
+        open(OUT, ">>$log_file") or die "Cannot open log file: $!";
+        print(OUT "$log");
+        close(OUT);
+    }
+    return $ret;
 }
 
 =pod

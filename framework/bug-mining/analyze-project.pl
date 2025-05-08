@@ -126,9 +126,6 @@ my $TRACKER_ID = $cmd_opts{t};
 my $TRACKER_NAME = $cmd_opts{g};
 $DEBUG = 1 if defined $cmd_opts{D};
 
-# Keep list of errors so user can see and resolve all at once
-my @errors = ();
-
 # Check format of target version id
 if (defined $BID) {
     $BID =~ /^(\d+)(:(\d+))?$/ or die "Wrong version id format ((\\d+)(:(\\d+))?): $BID!";
@@ -154,6 +151,9 @@ system("mkdir -p $ARGS_FILES");
 -d $PATCHES_DIR or die "$PATCHES_DIR does not exist: $!";
 -d $FAILING_DIR or die "$FAILING_DIR does not exist: $!";
 
+# Keep log of issues
+my $LOG = "$PROJECTS_DIR/$PID/analyze_project_error_log.txt";
+
 # DB_CSVs directory
 my $db_dir = $WORK_DIR;
 
@@ -171,30 +171,15 @@ my $project = Project::create_project($PID);
 $project->{prog_root} = $TMP_DIR;
 
 # Get database handle for results
-my $dbh = DB::get_db_handle($TAB_REV_PAIRS, $db_dir);
+my $dbh_revs = DB::get_db_handle($TAB_REV_PAIRS, $db_dir);
+my $dbh_bootstrap = DB::get_db_handle($TAB_BOOTSTRAP, $db_dir);
 my @COLS = DB::get_tab_columns($TAB_REV_PAIRS) or die;
 
-# Figure out which IDs to run script for
-my @ids = $project->get_bug_ids();
-if (defined $BID) {
-    if ($BID =~ /(\d+):(\d+)/) {
-        @ids = grep { ($1 <= $_) && ($_ <= $2) } @ids;
-    } else {
-        # single vid
-        @ids = grep { ($BID == $_) } @ids;
-    }
-}
-
-my $sth = $dbh->prepare("SELECT * FROM $TAB_REV_PAIRS WHERE $PROJECT=? AND $ID=?") or die $dbh->errstr;
-foreach my $bid (@ids) {
+# Clean up previous log files
+system("rm -f $LOG");
+my @bids = _get_bug_ids($BID);
+foreach my $bid (@bids) {
     printf ("%4d: $project->{prog_name}\n", $bid);
-
-    # Skip existing entries
-    $sth->execute($PID, $bid);
-    if ($sth->rows !=0) {
-        printf("      -> Skipping (existing entry in $TAB_REV_PAIRS)\n");
-        next;
-    }
 
     my %data;
     $data{$PROJECT} = $PID;
@@ -202,50 +187,15 @@ foreach my $bid (@ids) {
     $data{$ISSUE_TRACKER_NAME} = $TRACKER_NAME;
     $data{$ISSUE_TRACKER_ID} = $TRACKER_ID;
 
-    _check_diff($project, $bid, \%data) and
     _check_compilation($project, $bid, \%data) and
     _export_tests($project, $bid, \%data) or next;
-    #_check_t2v2($project, $bid, \%data) and
-    #_check_t2v1($project, $bid, \%data) or next;
 
     # Add data set to result file
     _add_row(\%data);
 }
-$dbh->disconnect();
+$dbh_revs->disconnect();
+$dbh_bootstrap->disconnect();
 system("rm -rf $TMP_DIR") unless $DEBUG;
-
-#
-# Check size of src diff, which is created by initialize-revisions.pl script,
-# for a given candidate bug (bid).
-#
-# Returns 1 on success, 0 otherwise
-#
-sub _check_diff {
-    my ($project, $bid, $data) = @_;
-
-    # Determine patch size for src and test patches (rev2 -> rev1)
-    my $patch_test = "$PATCHES_DIR/$bid.test.patch";
-    my $patch_src = "$PATCHES_DIR/$bid.src.patch";
-
-    if (!(-e $patch_test) || (-z $patch_test)) {
-        $data->{$DIFF_TEST} = 0;
-    } else {
-        my $diff = _read_file($patch_test);
-        die unless defined $diff;
-        $data->{$DIFF_TEST} = scalar(split("\n", $diff));
-    }
-
-    if (-z $patch_src) {
-        $data->{$DIFF_SRC} = 0;
-        return 0;
-    } else {
-        my $diff = _read_file($patch_src);
-        die unless defined $diff;
-        $data->{$DIFF_SRC} = scalar(split("\n", $diff)) or return 0;
-    }
-
-    return 1;
-}
 
 #
 # Check whether v1, v2, and t2 can be compiled and export args for javac.
@@ -264,79 +214,54 @@ sub _check_compilation {
     # Checkout v1
     $project->checkout_vid("${bid}b", $TMP_DIR, 1) == 1 or die;
 
-    # PAUSE PLACE TODO make reliable way to set the compiler source and target to Java 11
-    # Also in previous phase check that source and test Directories are being found correctly (looks like needs change to like DBUtils.pm _maven_2_layout)
-    # Also replace the classpath paths in the previous phase with command line arg placeholder
-
-    # TODO the error log isn't working...
-
     # Check that the v1 and t2 compile with maven
-    my $check_compile = "cd $project_path && mvn compile";
     my $log;
-    my $ret = Utils::exec_cmd($check_compile, "Checking that v1 source compiles with maven.", \$log);
+    my $ret = $project->mvn_compile(\$log);
     if (! $ret) {
-        push(@errors, "--------------------- Error compiling source v1 for bug ${bid} --------------------- \n${log}");
+        system("echo \"--------------------- Error compiling source v1 for bug ${bid} --------------------- \n${log}\n\n\" >> $LOG");
     }
     _add_bool_result($data, $COMP_V1, $ret) or return 0;
-    # TODO Find more general way to fix the animal sniffer and version plugin bundle
-    my $check_test_compile = "cd $project_path && mvn test-compile -Danimal.sniffer.skip=true";
-    $ret = Utils::exec_cmd($check_test_compile, "Checking that v1t2 compiles with maven.", \$log);
+
+    $ret = $project->mvn_test_compile(\$log);
     if (! $ret) {
-        push(@errors, "--------------------- Error compiling tests v1t2 for bug ${bid} --------------------- \n${log}");
+        system("echo \"--------------------- Error compiling tests v1t2 for bug ${bid} --------------------- \n${log}\n\n\" >> $LOG");
     }
     _add_bool_result($data, $COMP_T2V1, $ret) or return 0;
 
     # Construct the args files for compiling source and tests
     system("mkdir -p $ARGS_FILES/$bid");
-    my $v1_layout = $project->_determine_layout($v1);
-    # TODO can jsut call $project->src_dir(vid) to get the path to the source files
-    my $construct_args = "python3 $SCRIPTS/construct_javac_args.py"
-                         ." --dependency $ANALYZER_OUTPUT/$bid/source_cp"
-                         ." --projectpath $project_path"
-                         ." --output $ARGS_FILES/$bid/args_source_v1.txt"
-                         ." --classpath target/classes"
-                         ." --sourcepath $v1_layout->{src}"
-                         ." --sourcefiles $project_path/$v1_layout->{src}"
-                         ." --target target/classes";
-    Utils::exec_cmd($construct_args, "Constructing args file for compiling v1 source.");
+
+    $project->construct_javac_args("${bid}b", "$ANALYZER_OUTPUT/$bid/source_cp", 1, "$ARGS_FILES/$bid/args_source_v1.txt");
     # Confirm that the args file is correct for compiling v1 source
-    $project->compile("$ARGS_FILES/$bid/args_source_v1.txt") or die;
-    my $v2_layout = $project->_determine_layout($v2);
-    $construct_args = "python3 $SCRIPTS/construct_javac_args.py"
-                         ." --dependency $ANALYZER_OUTPUT/$bid/test_cp"
-                         ." --projectpath $project_path"
-                         ." --output $ARGS_FILES/$bid/args_test_v2.txt"
-                         .' --classpath target/classes'
-                         ." --sourcepath $v1_layout->{test}"
-                         ." --sourcefiles $project_path/$v1_layout->{test}"
-                         .' --target target/test-classes';
-    Utils::exec_cmd($construct_args, "Constructing args file for compiling v2 tests.");
-    # Confirm that the args file is correct for compiling v2 tests
-    $project->compile("$ARGS_FILES/$bid/args_test_v2.txt") or die;
+    $project->compile("$ARGS_FILES/$bid/args_source_v1.txt", $DEPENDENCIES) or die;
+
+    $project->construct_javac_args("${bid}b", "$ANALYZER_OUTPUT/$bid/test_cp", 0, "$ARGS_FILES/$bid/args_test_v2.txt");
+    # Confirm that the args file is correct for compiling v1t2 tests
+    $project->compile("$ARGS_FILES/$bid/args_test_v2.txt", $DEPENDENCIES) or die;
 
     # Checkout v2
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
 
     # Check that the v2 and t2 compile with maven
-    $check_compile = "cd $project_path && mvn compile";
-    $ret = Utils::exec_cmd($check_compile, "Checking that v2 source compiles with maven.", \$log);
+    $ret = $project->mvn_compile(\$log);
     if (! $ret) {
-        push(@errors, "--------------------- Error compiling source v2 for bug ${bid} --------------------- \n${log}");
+        system("echo \"--------------------- Error compiling source v2 for bug ${bid} --------------------- \n${log}\n\n\" >> $LOG");
     }
     _add_bool_result($data, $COMP_V2, $ret) or return 0;
+    $ret = $project->mvn_test_compile(\$log);
+    if (! $ret) {
+        system("echo \"--------------------- Error compiling tests v2t2 for bug ${bid} --------------------- \n${log}\n\n\" >> $LOG");
+    }
+    _add_bool_result($data, $COMP_T2V2, $ret) or return 0;
 
     # Construct the args files for compiling source
-    $construct_args = "python3 $SCRIPTS/construct_javac_args.py"
-                         ." --dependency $ANALYZER_OUTPUT/$bid/source_cp"
-                         ." --projectpath $project_path"
-                         ." --output $ARGS_FILES/$bid/args_source_v2.txt"
-                         .' --classpath target/classes'
-                         ." --sourcepath $v2_layout->{src}"
-                         ." --sourcefiles $project_path/$v2_layout->{src}"
-                         .' --target target/classes';
-    Utils::exec_cmd($construct_args, "Constructing args file for compiling v2 source.");
+    $project->construct_javac_args("${bid}f", "$ANALYZER_OUTPUT/$bid/source_cp", 1, "$ARGS_FILES/$bid/args_source_v2.txt");
     # Confirm that the args file is correct for compiling v2 source
-    $project->compile("$ARGS_FILES/$bid/args_source_v2.txt") or die;
+    $project->compile("$ARGS_FILES/$bid/args_source_v2.txt", $DEPENDENCIES) or die;
+    # Confirm that the args file is correct for compiling v2t2 tests
+    $project->compile("$ARGS_FILES/$bid/args_test_v2.txt", $DEPENDENCIES) or die;
+
+
 }
 
 #
@@ -373,13 +298,10 @@ sub _export_tests {
         $project->fix_tests("${bid}f");
 
         # Run t2 tests with maven and get the number of failing tests
-        # Animal sniffer is incompatible with Java 11 (the --release flag in javac does the same functionality)
-        # Jacoco is for instrumenting class files to get code coverage reports
-        my $run_tests = "cd $project_path && mvn test -Danimal.sniffer.skip=true -Djacoco.skip=true";
         my $log;
-        my $ret = Utils::exec_cmd($run_tests, "Running v2 tests with maven.", \$log);
+        my $ret = $project->run_mvn_tests(\$log);
         if (! $ret) {
-            push(@errors, "--------------------- Error running tests for bug ${bid} --------------------- \n${log}");
+            system("echo \"--------------------- Error running tests for bug ${bid} --------------------- \n${log}\n\n\" >> $LOG");
             return 0;
         }
 	
@@ -414,17 +336,6 @@ sub _export_tests {
 }
 
 #
-# Read a file line by line and return an array with all lines.
-#
-sub _read_file {
-    my $fn = shift;
-    open(FH, "<$fn") or confess "Could not open file: $!";
-    my @lines = <FH>;
-    close(FH);
-    return join('', @lines);
-}
-
-#
 # Insert boolean success into hash
 #
 sub _add_bool_result {
@@ -440,11 +351,52 @@ sub _add_row {
 
     my @tmp;
     foreach (@COLS) {
-        push (@tmp, $dbh->quote((defined $data->{$_} ? $data->{$_} : "-")));
+        push (@tmp, $dbh_revs->quote((defined $data->{$_} ? $data->{$_} : "-")));
     }
 
     my $row = join(",", @tmp);
-    $dbh->do("INSERT INTO $TAB_REV_PAIRS VALUES ($row)");
+    $dbh_revs->do("INSERT INTO $TAB_REV_PAIRS VALUES ($row)");
+}
+
+#
+# Get bug ids from BOOTSTRAP
+#
+sub _get_bug_ids {
+    my $target_bid = shift;
+
+    my $min_id;
+    my $max_id;
+    if (defined($target_bid) && $target_bid =~ /(\d+)(:(\d+))?/) {
+        $min_id = $max_id = $1;
+        $max_id = $3 if defined $3;
+    }
+
+    my $sth_exists = $dbh_revs->prepare("SELECT * FROM $TAB_REV_PAIRS WHERE $PROJECT=? AND $ID=?") or die $dbh_revs->errstr;
+
+    # Select all version ids from previous step in workflow
+    my $sth = $dbh_bootstrap->prepare("SELECT $ID FROM $TAB_BOOTSTRAP WHERE $PROJECT=? "
+                . "AND $BOOTSTRAPPED=1") or die $dbh_bootstrap->errstr;
+    $sth->execute($PID) or die "Cannot query database: $dbh_bootstrap->errstr";
+    my @bids = ();
+    foreach (@{$sth->fetchall_arrayref}) {
+        my $bid = $_->[0];
+        # Skip if project & ID already exist in DB file
+        $sth_exists->execute($PID, $bid);
+        if ($sth_exists->rows !=0) {
+            printf ("%4d: $project->{prog_name}\n", $bid);
+            printf("      -> Skipping (existing entry in $TAB_REV_PAIRS)\n");
+            next;
+        };
+
+        # Filter ids if necessary
+        next if (defined $min_id && ($bid<$min_id || $bid>$max_id));
+
+        # Add id to result array
+        push(@bids, $bid);
+    }
+    $sth->finish();
+
+    return @bids;
 }
 
 =pod
