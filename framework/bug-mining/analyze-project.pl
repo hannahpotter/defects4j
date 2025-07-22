@@ -261,7 +261,8 @@ sub _check_compilation {
     # Confirm that the args file is correct for compiling v2t2 tests
     $project->compile("$ARGS_FILES/$bid/args_test_v2.txt", $DEPENDENCIES) or die;
 
-
+    # PAUSE PLACE
+    # Figure out what is wrong with running tests for bug 27
 }
 
 #
@@ -323,13 +324,7 @@ sub _export_tests {
 
     # Extract test info to run natively
     system("mkdir -p $ARGS_FILES/$bid/test_info");
-    my $construct_args = "python3 $SCRIPTS/extract_test_info.py"
-                         ." --dependency $ANALYZER_OUTPUT/$bid/test_cp"
-                         ." --reports $project_path/target/surefire-reports"
-                         ." --output $ARGS_FILES/$bid/test_info"
-                         ." --classes $project_path/target/classes"
-                         ." --testclasses $project_path/target/test-classes";
-    Utils::exec_cmd($construct_args, "Extracting test info for t2.");
+    Utils::extract_test_info("$project_path/target/surefire-reports", "$ANALYZER_OUTPUT/$bid/test_cp", '{LOCAL_PROJECT_PATH}/target/classes', '{LOCAL_PROJECT_PATH}/target/test-classes', "$ARGS_FILES/$bid/test_info");
     # TODO: Confirm that the results are the same running natively and via Maven
 
     return 1;
@@ -380,6 +375,10 @@ sub _get_bug_ids {
     my @bids = ();
     foreach (@{$sth->fetchall_arrayref}) {
         my $bid = $_->[0];
+
+        # Filter ids if necessary
+        next if (defined $min_id && ($bid<$min_id || $bid>$max_id));
+
         # Skip if project & ID already exist in DB file
         $sth_exists->execute($PID, $bid);
         if ($sth_exists->rows !=0) {
@@ -387,9 +386,6 @@ sub _get_bug_ids {
             printf("      -> Skipping (existing entry in $TAB_REV_PAIRS)\n");
             next;
         };
-
-        # Filter ids if necessary
-        next if (defined $min_id && ($bid<$min_id || $bid>$max_id));
 
         # Add id to result array
         push(@bids, $bid);

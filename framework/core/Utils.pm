@@ -466,14 +466,18 @@ sub fix_pom {
         chomp($l);
         $l =~ /([^,]+),([^,]+),([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <groupId>,<artifactId>,<childPath>,<newXMLElement>)");
         my ($updateGroupId, $updateArtifactId, $updateChildPath, $change) = split(",", $l);
+        #print(STDERR "-----$l------\n");
         my $plugin;
         # Find the plugin if it is already in the pom file
-        foreach my $element ($xpc->findnodes("//ns:build/ns:plugins/ns:plugin | //ns:build/*/ns:plugins/ns:plugin")) {
+        # Look for both ns:plugin and plugin to deal with namespace shenanigans when adding new elements
+        foreach my $element ($xpc->findnodes("//ns:build/ns:plugins/ns:plugin | //ns:build/*/ns:plugins/ns:plugin | ".
+                                             "//ns:build/ns:plugins/plugin    | //ns:build/*/ns:plugins/plugin")) {
             my($artifact_id_node) = $element->getChildrenByTagName('artifactId');
             my($artifact_id) = $artifact_id_node->childNodes();
-            my $plugin;
+            #print(STDERR "CHECKING FOR IF $artifact_id is $updateArtifactId\n");
             if ($artifact_id->data eq $updateArtifactId) {
-                print(STDERR "$updateArtifactId plugin is already used\n") if $DEBUG;
+                #print(STDERR "$updateArtifactId plugin is already used\n") if $DEBUG;
+                #print(STDERR "PLUGIN IS ALREADY USED");
                 $plugin = $element;
                 last;
             } 
@@ -513,7 +517,6 @@ sub fix_pom {
         $modified=1;
     }
 
-    # TODO generalize the special cases to have something like the patterns files
     # Handle a special case with rat checks
     # If the rat checks is used, ignore the added defects4j files
     foreach my $element ($xpc->findnodes("//ns:build/ns:plugins/ns:plugin | //ns:build/*/ns:plugins/ns:plugin")) {
@@ -548,39 +551,6 @@ sub fix_pom {
         }
     }
 
-    # Handle a special case with maven-compiler-version
-    # Add the version
-    # TODO Issue here (and for all the other ones like this) - need to match on both 
-    # //ns:build/ns:plugins/ns:plugin
-    # OR
-    # //ns:build/*/ns:plugins/ns:plugin )) {
-
-    #foreach my $element ($xpc->findnodes('//ns:plugins/ns:plugin | //ns:build/*/ns:plugins/ns:plugin')) {
-    #  my($artifact_id) = $element->getChildrenByTagName('artifactId');
-    #    my($text) = $artifact_id->childNodes();
-    #    if ($text->data eq "maven-compiler-plugin") {
-    #        print(STDERR "MAVEN COMPILER PLUGIN\n");
-
-    #        my($version) = $element->getChildrenByTagName("version");
-    #        if (! $version) {
-    #            my $new_version = $dom->createElement("version");
-    #            $new_version->appendText("3.8.0");
-    #            $element->addChild($new_version);
-    #        }
-
-    #        my($configuration) = $element->getChildrenByTagName('configuration');
-    #        if (! $configuration) {
-    #            $configuration = $dom->createElement("configuration");
-    #        } 
-    #        my $release = $dom->createElement("release");
-    #        $release->appendText("11");
-    #        $configuration->removeChildNodes();
-    #        $configuration->addChild($release);
-#
-#            $modified = 1;
-#        }
-#    }*/
-
     # TODO only really need to do the org.apache.felix thing if there is the 
     # problem with the old plugin use as a direct or transitive dependency
     foreach my $element ($xpc->findnodes("//ns:build/ns:plugins | //ns:build/*/ns:plugins")) {
@@ -599,42 +569,14 @@ sub fix_pom {
         $modified = 1;
     }
 
-    # Handle special case
-    # If the maven-compiler-plugin isn't already there, add it and add the Java version
-    #if (! $xpc->findnodes("//ns:build/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin'] ".
-    #                     " | //ns:build/*/ns:plugins/ns:plugin/ns:artifactId[text()='maven-compiler-plugin']")) {
-    #   print(STDERR "NOT THERE!");
-
-    #    foreach my $element ($xpc->findnodes("//ns:build/ns:plugins | //ns:build/*/ns:plugins")) {
-    #        print(STDERR "PLUGINS");
-    #        my $plugin = $dom->createElement("plugin");
-    #        my $group_id = $dom->createElement("groupId"); 
-    #        $group_id->appendText("org.apache.maven.plugins");
-    #        my $artifact_id = $dom->createElement("artifactId"); 
-    #        $artifact_id->appendText("maven-compiler-plugin");
-    #        my $version = $dom->createElement("version");
-    #        $version->appendText("3.8.0");
-    #        # TODO need to make sure maven-compiler-plugin is always this version
-    #        my $configuration = $dom->createElement("configuration");
-    #        my $release = $dom->createElement("release");
-    #        $release->appendText("11");#
-
-     #       $configuration->addChild($release);
-     #       $plugin->addChild($group_id);
-     #       $plugin->addChild($artifact_id);
-     #       $plugin->addChild($version);
-     #       $plugin->addChild($configuration);
-     #       $element->addChild($plugin);
-
-     #       $modified = 1;
-     #   }
-    #}*/
+    print(STDERR $dom);
     
+    # TODO add pretty printing
     # Update the build file if necessary
     if ($modified) {
         unlink($build_file);
         my $fix = IO::File->new(">$build_file") or die("Cannot overwrite build file: $!");
-        print(STDERR "$dom\n") if $DEBUG;
+        print(STDERR $dom) if $DEBUG;
         print $fix $dom;
         $fix->flush();
         $fix->close();
@@ -990,6 +932,125 @@ sub get_failing_tests {
         close $fh;
     }
     return $list;
+}
+
+=pod
+
+=item C<Utils::extract_test_info(test_result_folder, dependency_file, classes_path, test_classes_path, output_folder)>
+
+TODO
+
+
+=cut
+
+sub extract_test_info {
+    @_ == 5 or die $ARG_ERROR;
+    my ($test_result_folder, $dependency_file, $classes_path, $test_classes_path, $output_folder) = @_;
+
+    ##### Extract the test results
+    opendir my($result_dirhandle), $test_result_folder;
+
+    open my $test_cases, ">", "$output_folder/testcases.txt" or die "Can't open testcases output file\n";
+    open my $test_suites, ">", "$output_folder/testsuites.txt" or die "Can't open testsuites output file\n";
+    open my $failing_tests, ">", "$output_folder/failing.txt" or die "Can't open failing output file\n";
+    open my $sysout_tests, ">", "$output_folder/sysout.txt" or die "Can't open sysout output file\n";
+    open my $skipped_tests, ">", "$output_folder/skipped.txt" or die "Can't open skipped output file\n";
+
+    my @files = grep { /\.xml$/ } readdir $result_dirhandle;
+    foreach my $file (@files) {
+        my $dom = XML::LibXML->load_xml(location => "$test_result_folder/$file") or die("Cannot read the xml file: $file");
+        
+        # Record the test suites
+        foreach my $test_suite ($dom->findnodes('//testsuite')) {
+            my $class = $test_suite->getAttribute('name');
+            print $test_suites "$class\n";
+        }
+
+        # Record test cases
+        # Format: <test_class>#<test_method>
+        foreach my $test_case ($dom->findnodes("//testcase")) {
+            my $record = 1;
+            my $unknown_type = 1;
+            my $classname = $test_case->getAttribute('classname');
+            my $testcasename = $test_case->getAttribute('name');
+
+            # A passing test with no logging output to record
+            if (! $test_case->exists('*')) {
+                $unknown_type = 0;
+            }
+
+            # Failing tests
+            if ($test_case->exists('./failure '
+                                .'| ./rerunFailure '
+                                .'| ./flakyFailure '
+                                .'| ./error '
+                                .'| ./rerunError '
+                                .'| ./flakyError')) {
+                print $failing_tests "--- $classname#$testcasename\n";
+                foreach my $child ($test_case->childNodes()) {
+                    print $failing_tests "$child\n";
+                }
+                $unknown_type = 0;
+            }
+
+            # System output
+            if ($test_case->exists('./system-err '
+                                .'| ./system-out ')) {
+                print $sysout_tests "--- $classname#$testcasename\n";
+                foreach my $child ($test_case->childNodes()) {
+                    print $sysout_tests "$child\n";
+                }
+                $unknown_type = 0;
+            }
+
+            # Skipped test cases
+            if ($test_case->exists('./skipped')) {
+                print $skipped_tests "--- $classname#$testcasename\n";
+                foreach my $child ($test_case->childNodes()) {
+                    print $skipped_tests "$child\n";
+                }
+                $unknown_type = 0;
+                # Tests skipped with Maven should also be skipped when running natively
+                $record = 0;
+            }
+
+            if ($unknown_type) {
+                print(STDERR "Unknown test case result:\n$test_case\n") if $DEBUG;
+            }
+
+            if ($record) {
+                print $test_cases "$classname#$testcasename\n";
+            }
+        }
+    }
+
+    close $test_cases;
+    close $test_suites;
+    close $failing_tests;
+    close $sysout_tests;
+    close $skipped_tests;
+
+    ##### Construct the args file for running JUnit tests natively
+    open my $dependency, '<', $dependency_file or die "Can't open $dependency_file file\n";;
+    my $dependency_path = <$dependency>;
+    $dependency_path = defined $dependency_path ? ":$dependency_path" : "";
+    close $dependency;
+
+    open my $args, '>', "$output_folder/args_junit.txt" or die "Can't open junit args file\n";
+    my $classpath = "$test_classes_path:$classes_path$dependency_path";
+    print $args "--classpath $classpath\n";
+    close $args;
+
+    ##### Extract the JUnit version
+    open my $junit, '>', "$output_folder/junit_version.txt" or die "Can't open junit version file\n";
+    if ($dependency_path =~ /junit-[\d*.]+/) {        
+        print $junit substr($&, 6, 1);
+    } elsif ($dependency_path =~ /junit-jupiter/) {
+        print $junit "5";
+    } else {
+        die "Can't determine JUnit version";
+    }
+    close $junit;
 }
 
 =pod
