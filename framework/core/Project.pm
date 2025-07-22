@@ -603,20 +603,16 @@ If F<log_file> is provided, the compiler output is written to this file.
 
 sub mvn_test_compile {
     @_ >= 1 or die $ARG_ERROR;
-    my ($self, $log_file) = @_;
+    my ($self, $log_ref) = @_;
 
+    # Animal sniffer is incompatible with Java 11 (the --release flag in javac does the same functionality)
     my $cmd = " cd $self->{prog_root}" .
               " && mvn test-compile" .
               " -Danimal.sniffer.skip=true".
               "  2>&1";
     my $log;
     my $ret = Utils::exec_cmd($cmd, "Running maven compile", \$log);
-
-    if (defined $log_file) {
-        open(OUT, ">>$log_file") or die "Cannot open log file: $!";
-        print(OUT "$log");
-        close(OUT);
-    }
+    $$log_ref = $log if defined $log_ref;
     return $ret;
 }
 
@@ -625,25 +621,21 @@ sub mvn_test_compile {
   $project->mvn_compile([log_file])
 
 Compiles the sources of the project version that is currently checked out.
-If F<log_file> is provided, the compiler output is written to this file.
+If the optional reference C<log_ref> is provided, the captured output is 
+stored in that variable.
 
 =cut
 
 sub mvn_compile {
     @_ >= 1 or die $ARG_ERROR;
-    my ($self, $log_file) = @_;
+    my ($self, $log_ref) = @_;
 
     my $cmd = " cd $self->{prog_root}" .
               " && mvn compile" .
               "  2>&1";
     my $log;
     my $ret = Utils::exec_cmd($cmd, "Running maven compile", \$log);
-
-    if (defined $log_file) {
-        open(OUT, ">>$log_file") or die "Cannot open log file: $!";
-        print(OUT "$log");
-        close(OUT);
-    }
+    $$log_ref = $log if defined $log_ref;
     return $ret;
 }
 
@@ -716,7 +708,7 @@ If F<log_file> is provided, the maven output is written to this file.
 
 sub run_mvn_tests {
     @_ >= 1 or die $ARG_ERROR;
-    my ($self, $log_file) = @_;
+    my ($self, $log_ref) = @_;
 
     # Animal sniffer is incompatible with Java 11 (the --release flag in javac does the same functionality)
     # Jacoco is for instrumenting class files to get code coverage reports
@@ -725,12 +717,7 @@ sub run_mvn_tests {
               "  2>&1";
     my $log;
     my $ret = Utils::exec_cmd($cmd, "Running maven test", \$log);
-
-    if (defined $log_file) {
-        open(OUT, ">>$log_file") or die "Cannot open log file: $!";
-        print(OUT "$log");
-        close(OUT);
-    }
+    $$log_ref = $log if defined $log_ref;
     return $ret;
 }
 
