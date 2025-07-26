@@ -173,7 +173,9 @@ $project->{prog_root} = $TMP_DIR;
 # Get database handle for results
 my $dbh_revs = DB::get_db_handle($TAB_REV_PAIRS, $db_dir);
 my $dbh_bootstrap = DB::get_db_handle($TAB_BOOTSTRAP, $db_dir);
-my @COLS = DB::get_tab_columns($TAB_REV_PAIRS) or die;
+my $dbh_pom = DB::get_db_handle($TAB_POM_FIX, $db_dir);
+my @REV_COLS = DB::get_tab_columns($TAB_REV_PAIRS) or die;
+my @POM_COLS = DB::get_tab_columns($TAB_POM_FIX) or die;
 
 # Clean up previous log files
 system("rm -f $LOG");
@@ -195,6 +197,7 @@ foreach my $bid (@bids) {
 }
 $dbh_revs->disconnect();
 $dbh_bootstrap->disconnect();
+$dbh_pom->disconnect();
 system("rm -rf $TMP_DIR") unless $DEBUG;
 
 #
@@ -215,17 +218,10 @@ sub _check_compilation {
     $project->checkout_vid("${bid}b", $TMP_DIR, 1) == 1 or die;
 
     # Check that the v1 and t2 compile with maven
-    my $log;
-    my $ret = $project->mvn_compile(\$log);
-    if (! $ret) {
-        system("echo \"--------------------- Error compiling source v1 for bug ${bid} --------------------- \n${log}\n\n\" >> $LOG");
-    }
+    my $ret = _try_command($bid, $project, \&Project::mvn_compile, "Error compiling source v1 for bug ${bid}");
     _add_bool_result($data, $COMP_V1, $ret) or return 0;
 
-    $ret = $project->mvn_test_compile(\$log);
-    if (! $ret) {
-        system("echo \"--------------------- Error compiling tests v1t2 for bug ${bid} --------------------- \n${log}\n\n\" >> $LOG");
-    }
+    $ret = _try_command($bid, $project, \&Project::mvn_test_compile, "Error compiling tests v1t2 for bug ${bid}");
     _add_bool_result($data, $COMP_T2V1, $ret) or return 0;
 
     # Construct the args files for compiling source and tests
@@ -243,15 +239,10 @@ sub _check_compilation {
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
 
     # Check that the v2 and t2 compile with maven
-    $ret = $project->mvn_compile(\$log);
-    if (! $ret) {
-        system("echo \"--------------------- Error compiling source v2 for bug ${bid} --------------------- \n${log}\n\n\" >> $LOG");
-    }
+    $ret = _try_command($bid, $project, \&Project::mvn_compile, "Error compiling source v2 for bug ${bid}");
     _add_bool_result($data, $COMP_V2, $ret) or return 0;
-    $ret = $project->mvn_test_compile(\$log);
-    if (! $ret) {
-        system("echo \"--------------------- Error compiling tests v2t2 for bug ${bid} --------------------- \n${log}\n\n\" >> $LOG");
-    }
+
+    $ret = _try_command($bid, $project, \&Project::mvn_test_compile, "Error compiling tests v2t2 for bug ${bid}");
     _add_bool_result($data, $COMP_T2V2, $ret) or return 0;
 
     # Construct the args files for compiling source
@@ -260,9 +251,6 @@ sub _check_compilation {
     $project->compile("$ARGS_FILES/$bid/args_source_v2.txt", $DEPENDENCIES) or die;
     # Confirm that the args file is correct for compiling v2t2 tests
     $project->compile("$ARGS_FILES/$bid/args_test_v2.txt", $DEPENDENCIES) or die;
-
-    # PAUSE PLACE
-    # Figure out what is wrong with running tests for bug 27
 }
 
 #
@@ -299,10 +287,8 @@ sub _export_tests {
         $project->fix_tests("${bid}f");
 
         # Run t2 tests with maven and get the number of failing tests
-        my $log;
-        my $ret = $project->run_mvn_tests(\$log);
+        my $ret = _try_command($bid, $project, \&Project::run_mvn_tests, "Error running tests for bug ${bid}");
         if (! $ret) {
-            system("echo \"--------------------- Error running tests for bug ${bid} --------------------- \n${log}\n\n\" >> $LOG");
             return 0;
         }
 	
@@ -331,6 +317,57 @@ sub _export_tests {
 }
 
 #
+# Attempts the maven command. If there is an error, search the 
+# log for problematic error and attempt a fix until a successful change
+# is found or all patterns have been tried.
+# 
+sub _try_command {
+    @_ == 4 or die $ARG_ERROR;
+    my ($bid, $project_ref, $mvn_cmd_ref, $err_msg) = @_;
+    my $project_path = $project_ref->{prog_root};
+
+    my $original_log;
+    my $original_ret = $mvn_cmd_ref->($project_ref, \$original_log);
+    if (! $original_ret) {
+        open(IN, "<$UTIL_DIR/log_fix.patterns") or die("Cannot read log pattern file");
+        my @patterns = <IN>;
+        close(IN);
+        # Read all elements; skip comments
+        foreach my $l (@patterns) {
+            $l =~ /^\s*#/ and next;
+            chomp($l);
+            $l =~ /([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <issue_name>,<pattern>)");
+            my ($issue_name, $pattern) = split(",", $l);
+            # If the pattern is present in the log, attempt the fix for the issue name
+            if (${original_log} =~ /$pattern/) {
+                my %data;
+                $data{$PROJECT} = $PID;
+                $data{$ID} = $bid;
+                $data{$issue_name} = 1; 
+                Utils::fix_pom("$project_path/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns", \%data) if -e "$project_path/pom.xml";
+
+                my $attempt_ret = $mvn_cmd_ref->($project_ref);
+                # If the fix works, record
+                if ($attempt_ret) {
+                    my @tmp;
+                    foreach (@POM_COLS) {
+                        push (@tmp, $dbh_pom->quote((defined $data{$_} ? $data{$_} : "-")));
+                    }
+                    my $row = join(",", @tmp);
+                    $dbh_pom->do("INSERT INTO $TAB_POM_FIX VALUES ($row)");
+
+                    return $attempt_ret;
+                }
+            }
+        }  
+    }
+
+    # No fix was found
+    system("echo \"--------------------- $err_msg --------------------- \n${original_log}\n\n\" >> $LOG");
+    return $original_ret;
+}
+
+#
 # Insert boolean success into hash
 #
 sub _add_bool_result {
@@ -345,7 +382,7 @@ sub _add_row {
     my $data = shift;
 
     my @tmp;
-    foreach (@COLS) {
+    foreach (@REV_COLS) {
         push (@tmp, $dbh_revs->quote((defined $data->{$_} ? $data->{$_} : "-")));
     }
 

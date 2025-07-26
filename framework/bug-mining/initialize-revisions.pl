@@ -167,7 +167,7 @@ sub _init_maven {
 
     # Update the pom.xml to update pom elements.
     Utils::fix_dependency_urls("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_urls.patterns", 1) if -e "$work_dir/pom.xml";
-    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns") if -e "$work_dir/pom.xml";
+    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns", {}) if -e "$work_dir/pom.xml";
 
     # Check for dependencies that can't be resolved
     my $check_dep = "cd $work_dir && mvn dependency:resolve";

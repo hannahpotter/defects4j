@@ -431,8 +431,8 @@ Parses the F<build_file> and performs necessary replacements.
 
 =cut
 sub fix_pom {
-    @_ == 3 || die $ARG_ERROR;
-    my ($build_file, $pattern_file, $plugin_file) = @_;
+    @_ == 4 || die $ARG_ERROR;
+    my ($build_file, $pattern_file, $plugin_file, $conditional_fixes) = @_;
 
     my $dom = XML::LibXML->load_xml(location => $build_file) or die("Cannot read the build file: $build_file");
     my $root_ns = $dom->documentElement->namespaceURI;
@@ -464,9 +464,15 @@ sub fix_pom {
     foreach my $l (@patterns) {
         $l =~ /^\s*#/ and next;
         chomp($l);
-        $l =~ /([^,]+),([^,]+),([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <groupId>,<artifactId>,<childPath>,<newXMLElement>)");
-        my ($updateGroupId, $updateArtifactId, $updateChildPath, $change) = split(",", $l);
-        #print(STDERR "-----$l------\n");
+        $l =~ /([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <groupId>,<artifactId>,<childPath>,<newXMLElement>,<condition>)");
+        my ($updateGroupId, $updateArtifactId, $updateChildPath, $change, $condition) = split(",", $l);
+        
+        # If this is a conditional update, skip if the condition is not met
+        my $applies = $conditional_fixes->{$condition};
+        if (!($condition eq "NONE") && !$applies) {
+            next;
+        }
+
         my $plugin;
         # Find the plugin if it is already in the pom file
         # Look for both ns:plugin and plugin to deal with namespace shenanigans when adding new elements
@@ -474,10 +480,7 @@ sub fix_pom {
                                              "//ns:build/ns:plugins/plugin    | //ns:build/*/ns:plugins/plugin")) {
             my($artifact_id_node) = $element->getChildrenByTagName('artifactId');
             my($artifact_id) = $artifact_id_node->childNodes();
-            #print(STDERR "CHECKING FOR IF $artifact_id is $updateArtifactId\n");
             if ($artifact_id->data eq $updateArtifactId) {
-                #print(STDERR "$updateArtifactId plugin is already used\n") if $DEBUG;
-                #print(STDERR "PLUGIN IS ALREADY USED");
                 $plugin = $element;
                 last;
             } 
@@ -523,7 +526,6 @@ sub fix_pom {
         my($artifact_id) = $element->getChildrenByTagName('artifactId');
         my($text) = $artifact_id->childNodes();
         if ($text->data eq "apache-rat-plugin") {
-            print(STDERR "RAT IS USED\n") if $DEBUG;
             my $build_properties = $dom->createElement("exclude");
             $build_properties->appendText("defects4j.build.properties");        
             my $config = $dom->createElement("exclude");
@@ -551,25 +553,7 @@ sub fix_pom {
         }
     }
 
-    # TODO only really need to do the org.apache.felix thing if there is the 
-    # problem with the old plugin use as a direct or transitive dependency
-    foreach my $element ($xpc->findnodes("//ns:build/ns:plugins | //ns:build/*/ns:plugins")) {
-        my $plugin = $dom->createElement("plugin");
-        my $group_id = $dom->createElement("groupId");
-        $group_id->appendText("org.apache.felix");
-        my $artifact_id = $dom->createElement("artifactId");
-        $artifact_id->appendText("maven-bundle-plugin");
-        my $version = $dom->createElement("version");
-        $version->appendText("5.1.9");
-
-        $plugin->addChild($group_id);
-        $plugin->addChild($artifact_id);
-        $plugin->addChild($version);
-        $element->addChild($plugin);
-        $modified = 1;
-    }
-
-    print(STDERR $dom);
+    #print(STDERR $dom);
     
     # TODO add pretty printing
     # Update the build file if necessary

@@ -82,6 +82,16 @@ our $TAB_REV_PAIRS = ($ENV{TAB_REV_PAIRS} or "rev_pairs");
 
 =pod
 
+=item C<TAB_POM_FIX>
+
+The name of the database table for fixing pom issues that can't be determined just from looking at the pom (I<pom_fix>)
+
+=cut
+
+our $TAB_POM_FIX = ($ENV{TAB_POM_FIX} or "pom_fix");
+
+=pod
+
 =item C<TAB_TRIGGER>
 
 The name of the database table for the results of analyzing triggering tests (I<trigger>)
@@ -173,6 +183,10 @@ our $COMP_T2V1     = "compile_t2v1";
 our $MIN_SRC       = "minimized_src_patch";
 our $REVIEW_TESTS  = "reviewed_tests_t2v2";
 
+# Additional columns for TAB_POM_FIX
+our $BUNDLE = "bundle"; # org.apache.felix:maven-bundle-plugin version 5.1.9 works with Java 11
+our $SUREFIRE = "surefire"; # org.apache.maven.plugins:maven-surefire-plugin version 2.20.1 doesn't work with Java11 (2.21.0 does)
+
 # Additional columns of TAB_TRIGGER
 our $FAIL_V2       = "num_fail_t2v2";
 our $FAIL_C_V1     = "num_fail_classes_t2v1";
@@ -215,6 +229,8 @@ my %tables = (
 $TAB_BOOTSTRAP => [$PROJECT, $ID, $DIFF_SRC, $DIFF_TEST, $BOOTSTRAPPED],
 # TAB_REV_PAIRS
 $TAB_REV_PAIRS => [$PROJECT, $ID, $ISSUE_TRACKER_NAME, $ISSUE_TRACKER_ID, $COMP_V2, $COMP_T2V2, $FAIL_T2V2, $COMP_V1, $COMP_T2V1, $MIN_SRC, $REVIEW_TESTS],
+# TAB_POM_FIX
+$TAB_POM_FIX => [$PROJECT, $ID, $BUNDLE, $SUREFIRE],
 # Table TAB_TRIGGER
 $TAB_TRIGGER => [$PROJECT, $ID, $FAIL_V2, $FAIL_C_V1, $FAIL_M_V1, $PASS_ISO_V2, $FAIL_ISO_V1],
 # Table TAB_BUG_DETECTION
@@ -234,6 +250,7 @@ $TAB_FIX => [$PROJECT, $ID, $TEST_SUITE, $TEST_ID, $NUM_UNCOMPILABLE_TESTS, $NUM
 our %PRIMARY_KEYS = (
     $TAB_BOOTSTRAP => 2,
     $TAB_REV_PAIRS => 2,
+    $TAB_POM_FIX => 2,
     $TAB_TRIGGER => 2,
     $TAB_BUG_DETECTION => 4,
     $TAB_MUTATION => 4,
@@ -246,6 +263,7 @@ our @EXPORT = qw(
 $DB_DIR
 $TAB_BOOTSTRAP
 $TAB_REV_PAIRS
+$TAB_POM_FIX
 $TAB_TRIGGER
 $TAB_BUG_DETECTION
 $TAB_MUTATION
@@ -268,6 +286,8 @@ $COMP_V1
 $COMP_T2V1
 $MIN_SRC
 $REVIEW_TESTS
+$BUNDLE
+$SUREFIRE
 $FAIL_V2
 $FAIL_C_V1
 $FAIL_M_V1

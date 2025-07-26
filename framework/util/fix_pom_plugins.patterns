@@ -1,11 +1,15 @@
 # This file lists rules, intended to fix plugin values in pom files.
 #
-# Each row must have the following format: <groupId>,<artifactId>,<childPath>,<newXMLElement>. The two parts in
+# Each row must have the following format: <groupId>,<artifactId>,<childPath>,<newXMLElement><condition>. The two parts in
 # each row form an element path in the syntax used by XML::LibXML and the value to be
 # set at that path. All child nodes at the path are removed and replaced with a text node with the replace value. 
 # Rows starting with '#' are ignored.
 # The default namespace is registered as 'ns'.
 # See https://grantm.github.io/perl-libxml-by-example/xpath.html for examples of paths and a sandbox to test out queries.
 #
-org.apache.maven.plugins,maven-compiler-plugin,version,3.8.0
-org.apache.maven.plugins,maven-compiler-plugin,configuration/release,11
+org.apache.maven.plugins,maven-compiler-plugin,version,3.8.0,NONE
+org.apache.maven.plugins,maven-compiler-plugin,configuration/release,11,NONE
+org.apache.maven.plugins,maven-compiler-plugin,configuration/source,11,NONE
+org.apache.maven.plugins,maven-compiler-plugin,configuration/target,11,NONE
+org.apache.felix,maven-bundle-plugin,version,5.1.9,bundle
+org.apache.maven.plugins,maven-surefire-plugin,version,2.21.0,surefire
