@@ -183,17 +183,23 @@ my @bids = _get_bug_ids($BID);
 foreach my $bid (@bids) {
     printf ("%4d: $project->{prog_name}\n", $bid);
 
-    my %data;
-    $data{$PROJECT} = $PID;
-    $data{$ID} = $bid;
-    $data{$ISSUE_TRACKER_NAME} = $TRACKER_NAME;
-    $data{$ISSUE_TRACKER_ID} = $TRACKER_ID;
+    # Keep track of revision data
+    my %rev_data;
+    $rev_data{$PROJECT} = $PID;
+    $rev_data{$ID} = $bid;
+    $rev_data{$ISSUE_TRACKER_NAME} = $TRACKER_NAME;
+    $rev_data{$ISSUE_TRACKER_ID} = $TRACKER_ID;
 
-    _check_compilation($project, $bid, \%data) and
-    _export_tests($project, $bid, \%data) or next;
+    # Keep track of pom fix data
+    my %pom_data;
+    $pom_data{$PROJECT} = $PID;
+    $pom_data{$ID} = $bid;
+
+    _check_compilation($project, $bid, \%rev_data, \%pom_data) and
+    _export_tests($project, $bid, \%rev_data, \%pom_data) or next;
 
     # Add data set to result file
-    _add_row(\%data);
+    _add_rows(\%rev_data, \%pom_data);
 }
 $dbh_revs->disconnect();
 $dbh_bootstrap->disconnect();
@@ -206,7 +212,7 @@ system("rm -rf $TMP_DIR") unless $DEBUG;
 # Returns 1 on success, 0 otherwise
 #
 sub _check_compilation {
-    my ($project, $bid, $data) = @_;
+    my ($project, $bid, $rev_data, $pom_data) = @_;
 
     # Lookup revision ids
     my $v1  = $project->lookup("${bid}b");
@@ -218,11 +224,11 @@ sub _check_compilation {
     $project->checkout_vid("${bid}b", $TMP_DIR, 1) == 1 or die;
 
     # Check that the v1 and t2 compile with maven
-    my $ret = _try_command($bid, $project, \&Project::mvn_compile, "Error compiling source v1 for bug ${bid}");
-    _add_bool_result($data, $COMP_V1, $ret) or return 0;
+    my $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, "Error compiling source v1 for bug ${bid}");
+    _add_bool_result($rev_data, $COMP_V1, $ret) or return 0;
 
-    $ret = _try_command($bid, $project, \&Project::mvn_test_compile, "Error compiling tests v1t2 for bug ${bid}");
-    _add_bool_result($data, $COMP_T2V1, $ret) or return 0;
+    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile, "Error compiling tests v1t2 for bug ${bid}");
+    _add_bool_result($rev_data, $COMP_T2V1, $ret) or return 0;
 
     # Construct the args files for compiling source and tests
     system("mkdir -p $ARGS_FILES/$bid");
@@ -239,11 +245,11 @@ sub _check_compilation {
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
 
     # Check that the v2 and t2 compile with maven
-    $ret = _try_command($bid, $project, \&Project::mvn_compile, "Error compiling source v2 for bug ${bid}");
-    _add_bool_result($data, $COMP_V2, $ret) or return 0;
+    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, "Error compiling source v2 for bug ${bid}");
+    _add_bool_result($rev_data, $COMP_V2, $ret) or return 0;
 
-    $ret = _try_command($bid, $project, \&Project::mvn_test_compile, "Error compiling tests v2t2 for bug ${bid}");
-    _add_bool_result($data, $COMP_T2V2, $ret) or return 0;
+    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile, "Error compiling tests v2t2 for bug ${bid}");
+    _add_bool_result($rev_data, $COMP_T2V2, $ret) or return 0;
 
     # Construct the args files for compiling source
     $project->construct_javac_args("${bid}f", "$ANALYZER_OUTPUT/$bid/source_cp", 1, "$ARGS_FILES/$bid/args_source_v2.txt");
@@ -259,7 +265,7 @@ sub _check_compilation {
 # Returns 1 on success, 0 otherwise
 #
 sub _export_tests {
-    my ($project, $bid, $data) = @_;
+    my ($project, $bid, $rev_data, $pom_data) = @_;
 
     my $project_path = $project->{prog_root};
 
@@ -273,13 +279,6 @@ sub _export_tests {
     # Checkout v2
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
 
-    # https://stackoverflow.com/questions/9288107/run-single-test-from-a-junit-class-using-command-line
-    # Run a java test class
-    #    java -jar junit-platform-console-standalone-1.11.3.jar execute -cp <classpath-for-the-class-under-test> --select-class=hello.HelloTest
-    # Run a java test method
-    #    java -jar junit-platform-console-standalone-1.11.3.jar execute -cp <classpath-for-the-class-under-test> --select=method:hello.HelloTest#hi
-
-
     my $successful_runs = 0;
     my $run = 1;
     while ($successful_runs < $TEST_RUNS && $run <= $MAX_TEST_RUNS) {
@@ -287,7 +286,7 @@ sub _export_tests {
         $project->fix_tests("${bid}f");
 
         # Run t2 tests with maven and get the number of failing tests
-        my $ret = _try_command($bid, $project, \&Project::run_mvn_tests, "Error running tests for bug ${bid}");
+        my $ret = _try_command($bid, $project, $pom_data, \&Project::run_mvn_tests, "Error running tests for bug ${bid}");
         if (! $ret) {
             return 0;
         }
@@ -296,9 +295,9 @@ sub _export_tests {
         my $list = Utils::get_failing_tests("$project_path/target/surefire-reports");
         my $fail = scalar(@{$list->{"classes"}}) + scalar(@{$list->{"methods"}});
         if ($run == 1) {
-            $data->{$FAIL_T2V2} = $fail;
+            $rev_data->{$FAIL_T2V2} = $fail;
         } else {
-            $data->{$FAIL_T2V2} += $fail;
+            $rev_data->{$FAIL_T2V2} += $fail;
         }
 
         if ($fail == 0) {
@@ -322,12 +321,12 @@ sub _export_tests {
 # is found or all patterns have been tried.
 # 
 sub _try_command {
-    @_ == 4 or die $ARG_ERROR;
-    my ($bid, $project_ref, $mvn_cmd_ref, $err_msg) = @_;
-    my $project_path = $project_ref->{prog_root};
+    @_ == 5 or die $ARG_ERROR;
+    my ($bid, $project, $pom_data, $mvn_cmd, $err_msg) = @_;
+    my $project_path = $project->{prog_root};
 
     my $original_log;
-    my $original_ret = $mvn_cmd_ref->($project_ref, \$original_log);
+    my $original_ret = $mvn_cmd->($project, \$original_log);
     if (! $original_ret) {
         open(IN, "<$UTIL_DIR/log_fix.patterns") or die("Cannot read log pattern file");
         my @patterns = <IN>;
@@ -340,23 +339,15 @@ sub _try_command {
             my ($issue_name, $pattern) = split(",", $l);
             # If the pattern is present in the log, attempt the fix for the issue name
             if (${original_log} =~ /$pattern/) {
-                my %data;
-                $data{$PROJECT} = $PID;
-                $data{$ID} = $bid;
-                $data{$issue_name} = 1; 
-                Utils::fix_pom("$project_path/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns", \%data) if -e "$project_path/pom.xml";
+                $pom_data->{$issue_name} = 1; 
+                Utils::fix_pom("$project_path/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns", $pom_data) if -e "$project_path/pom.xml";
 
-                my $attempt_ret = $mvn_cmd_ref->($project_ref);
+                my $attempt_ret = $mvn_cmd->($project);
                 # If the fix works, record
                 if ($attempt_ret) {
-                    my @tmp;
-                    foreach (@POM_COLS) {
-                        push (@tmp, $dbh_pom->quote((defined $data{$_} ? $data{$_} : "-")));
-                    }
-                    my $row = join(",", @tmp);
-                    $dbh_pom->do("INSERT INTO $TAB_POM_FIX VALUES ($row)");
-
                     return $attempt_ret;
+                } else {
+                    $pom_data->{$issue_name} = 0;
                 }
             }
         }  
@@ -376,18 +367,26 @@ sub _add_bool_result {
 }
 
 #
-# Add a row to the database table
+# Add a rows to the database tables
 #
-sub _add_row {
-    my $data = shift;
+sub _add_rows {
+    my ($rev_data, $pom_data) = @_;
 
-    my @tmp;
+    # Save the revision results
+    my @rev_tmp;
     foreach (@REV_COLS) {
-        push (@tmp, $dbh_revs->quote((defined $data->{$_} ? $data->{$_} : "-")));
+        push (@rev_tmp, $dbh_revs->quote((defined $rev_data->{$_} ? $rev_data->{$_} : "-")));
     }
+    my $rev_row = join(",", @rev_tmp);
+    $dbh_revs->do("INSERT INTO $TAB_REV_PAIRS VALUES ($rev_row)");
 
-    my $row = join(",", @tmp);
-    $dbh_revs->do("INSERT INTO $TAB_REV_PAIRS VALUES ($row)");
+    # Save the pom fix results
+    my @pom_tmp;
+    foreach (@POM_COLS) {
+        push (@pom_tmp, $dbh_pom->quote((defined $pom_data->{$_}? $pom_data->{$_} : "-")));
+    }
+    my $pom_row = join(",", @pom_tmp);
+    $dbh_pom->do("INSERT INTO $TAB_POM_FIX VALUES ($pom_row)");
 }
 
 #
