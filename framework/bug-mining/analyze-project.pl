@@ -173,7 +173,7 @@ $project->{prog_root} = $TMP_DIR;
 # Get database handle for results
 my $dbh_revs = DB::get_db_handle($TAB_REV_PAIRS, $db_dir);
 my $dbh_bootstrap = DB::get_db_handle($TAB_BOOTSTRAP, $db_dir);
-my $dbh_pom = DB::get_db_handle($TAB_POM_FIX, $db_dir);
+my $dbh_pom = DB::get_db_handle($TAB_POM_FIX, "$PROJECTS_DIR/$PID");
 my @REV_COLS = DB::get_tab_columns($TAB_REV_PAIRS) or die;
 my @POM_COLS = DB::get_tab_columns($TAB_POM_FIX) or die;
 
@@ -292,7 +292,8 @@ sub _export_tests {
         }
 	
         # Get number of failing tests
-        my $list = Utils::get_failing_tests("$project_path/target/surefire-reports");
+        my $file = "$project->{prog_root}/v2.fail"; `>$file`;
+        my $list = Utils::get_failing_tests("$project_path/target/surefire-reports", 1, $file);
         my $fail = scalar(@{$list->{"classes"}}) + scalar(@{$list->{"methods"}});
         if ($run == 1) {
             $rev_data->{$FAIL_T2V2} = $fail;
@@ -300,8 +301,11 @@ sub _export_tests {
             $rev_data->{$FAIL_T2V2} += $fail;
         }
 
-        if ($fail == 0) {
-            ++$successful_runs;
+        ++$successful_runs;
+        # Append to log if there were (new) failing tests
+        unless ($fail == 0) {
+            Utils::append_failing_test_log($FAILING_DIR/$v2, $file, "$project->{prog_name}: $v2");
+            $successful_runs = 0;
         }
 
         ++$run;
@@ -350,11 +354,14 @@ sub _try_command {
                     $pom_data->{$issue_name} = 0;
                 }
             }
-        }  
+        } 
+
+        # No fix was found
+        system("echo \"--------------------- $err_msg --------------------- \n${original_log}\n\n\" >> $LOG");
+        return $original_ret; 
     }
 
-    # No fix was found
-    system("echo \"--------------------- $err_msg --------------------- \n${original_log}\n\n\" >> $LOG");
+    # Command works without any fixes needed
     return $original_ret;
 }
 

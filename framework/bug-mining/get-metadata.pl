@@ -92,6 +92,9 @@ This script writes the loaded classes, modified classes, and relevant tests to:
 
 =back
 
+# PAUSE PLACE Update this file to run with maven 
+# Add to promote-to-db all of the extraction to run natively stuff
+
 =cut
 use warnings;
 use strict;
@@ -161,7 +164,7 @@ foreach my $bid (@bids) {
     my $file = "$TRIGGER/$bid";
     -e $file or die "Triggering test does not exist: $file!";
 
-    my @list = @{Utils::get_failing_tests($file)->{methods}};
+    my @list = @{Utils::get_failing_tests($file, 0)->{methods}};
     # There has to be a triggering test
     scalar(@list) > 0 or die "No triggering test: $v2";
 
@@ -171,8 +174,8 @@ foreach my $bid (@bids) {
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) or die;
 
     # Compile sources and tests
-    $project->compile() or die;
-    $project->compile_tests() or die;
+    $project->mvn_compile() or die;
+    $project->mvn_test_compile() or die;
 
     my %src;
     my %test;
@@ -180,11 +183,11 @@ foreach my $bid (@bids) {
         my $log_file = "$TMP_DIR/tests.fail";
 
         # Run triggering test and verify that it passes
-        $project->run_tests($log_file, $test) or die;
+        $project->run_single_mvn_test($test) or die;
 
         # Get number of failing tests -> has to be 0
-        my $fail = Utils::get_failing_tests($log_file);
-        (scalar(@{$fail->{classes}}) + scalar(@{$fail->{methods}})) == 0 or die "Unexpected failing test on fixed project version (see $log_file)!";
+        my $fail = Utils::get_failing_tests("$TMP_DIR/target/surefire-reports", 1);
+        (scalar(@{$fail->{classes}}) + scalar(@{$fail->{methods}})) == 0 or die "Unexpected failing test on fixed project version (see $TMP_DIR/target/surefire-reports)!";
 
         # Run tests again and monitor class loader
         my $loaded = $project->monitor_test($test, "${bid}f");

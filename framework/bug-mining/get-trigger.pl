@@ -212,24 +212,9 @@ foreach my $bid (@bids) {
     }
 
     # Save dependent tests to $DEP_TEST_FILE
-    
-    # Get contents of current dependent tests file
-    my @old_dep_tests;
-
-    if (-e $DEP_TEST_FILE){
-        open my $contents, '<', $DEP_TEST_FILE or die "Cannot open dependent tests file: $!\n";
-        my @old_dep_tests = <$contents>;
-        close $contents;    
-    }
-
     my @dependent_tests = grep { !($_ ~~  @{$list}) } @fail_in_order;
     for my $dependent_test (@dependent_tests) {
-        # Add the test unless it is already in the list.
-        unless ($dependent_test ~~ @old_dep_tests) {
-            print " ## Warning: Dependent test ($dependent_test) is being added to list.\n";
-            system("echo '--- $dependent_test' >> $DEP_TEST_FILE");
-            push @old_dep_tests, $dependent_test;
-        }
+        append_dependent_test_log($DEP_TEST_FILE, $dependent_test);
     }
 
     # Add data
@@ -288,15 +273,14 @@ sub _get_failing_tests {
     $project->checkout_vid($vid, $root, 1) or die;
 
     # Compile src and test
-    my $check_compile = "cd $root && mvn compile";
-    Utils::exec_cmd($check_compile, "Checking that source compiles with maven.") or die;
+    $project->mvn_compile() or die;
+    $project->mvn_test_compile() or die;
 
     # Run tests and get number of failing tests
-    my $run_tests = "cd $root && mvn test -Danimal.sniffer.skip=true -Djacoco.skip=true";
     # Don't "die" here if there are failing tests
-    Utils::exec_cmd($run_tests, "Running tests with maven.");
+    $project->run_mvn_tests();
     # Return failing tests
-    return Utils::get_failing_tests("$root/target/surefire-reports");
+    return Utils::get_failing_tests("$root/target/surefire-reports", 1);
 }
 
 #
@@ -314,15 +298,15 @@ sub _run_tests_isolation {
     foreach my $test (@$list) {
         system(">$FAILED_TESTS_FILE_SINGLE");
         # Run tests and get number of failing tests
-        my $run_tests = "cd $root && mvn -Dtest=$test clean test -Danimal.sniffer.skip=true -Djacoco.skip=true";
         # Don't "die" here if there are failing tests
-        Utils::exec_cmd($run_tests, "Running $test with maven.");
-        my $fail = Utils::get_failing_tests("$root/target/surefire-reports", $FAILED_TESTS_FILE_SINGLE);
+        $project->run_mvn_clean();
+        $project->run_single_mvn_test($test);
+        my $fail = Utils::get_failing_tests("$root/target/surefire-reports", 1, $FAILED_TESTS_FILE_SINGLE);
         my $num_failed = scalar(@{$fail->{methods}});
         print(STDERR "FAILED: $num_failed\n");
         if (scalar(@{$fail->{methods}}) == $expect_fail) {
             push @succeeded_tests, $test;
-            system("cat $FAILED_TESTS_FILE_SINGLE >> $FAILED_TESTS_FILE"); # save results of single test to overall file.
+            Utils::append_failing_test_log($FAILED_TESTS_FILE, $FAILED_TESTS_FILE_SINGLE); # save results of single test to overall file.
         }
     }
 

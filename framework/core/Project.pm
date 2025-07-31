@@ -325,7 +325,7 @@ sub exclude_tests_in_file {
             "Excluding broken/flaky tests") or die;
 
     # Check whether broken test classes should be excluded
-    my $failed = Utils::get_failing_tests($file);
+    my $failed = Utils::get_failing_tests($file, 0);
     my @classes= @{$failed->{classes}};
 
     return if scalar @classes == 0;
@@ -630,6 +630,24 @@ sub construct_javac_args {
 
 =pod
 
+  $project->run_mvn_clean()
+
+Executes mvn clean.
+
+=cut
+
+sub run_mvn_clean {
+    @_ == 1 or die $ARG_ERROR;
+    my ($self) = @_;
+
+    my $cmd = " cd $self->{prog_root}" .
+              " && mvn clean";
+    my $ret = Utils::exec_cmd($cmd, "Running maven clean");
+    return $ret;
+}
+
+=pod
+
   $project->mvn_test_compile([log_file])
 
 Compiles the test of the project version that is currently checked out.
@@ -647,7 +665,7 @@ sub mvn_test_compile {
               " -Danimal.sniffer.skip=true".
               "  2>&1";
     my $log;
-    my $ret = Utils::exec_cmd($cmd, "Running maven compile", \$log);
+    my $ret = Utils::exec_cmd($cmd, "Running maven test-compile", \$log);
     $$log_ref = $log if defined $log_ref;
     return $ret;
 }
@@ -754,6 +772,29 @@ sub run_mvn_tests {
     my $log;
     my $ret = Utils::exec_cmd($cmd, "Running maven test", \$log);
     $$log_ref = $log if defined $log_ref;
+    return $ret;
+}
+
+=pod
+
+  $project->run_single_mvn_tests(single_test)
+
+
+=cut
+
+sub run_single_mvn_test {
+    @_ == 2 or die $ARG_ERROR;
+    my ($self, $single_test) = @_;
+
+    $single_test =~ /([^#]+)#([^#]+)/ or die "Wrong format for single test!";
+    my $test = "-Dtest=$single_test";
+
+    # Animal sniffer is incompatible with Java 11 (the --release flag in javac does the same functionality)
+    # Jacoco is for instrumenting class files to get code coverage reports
+    my $cmd = " cd $self->{prog_root}" .
+              " && mvn test $test -Danimal.sniffer.skip=true -Djacoco.skip=true" .
+              "  2>&1";
+    my $ret = Utils::exec_cmd($cmd, "Running maven test for $single_test");
     return $ret;
 }
 
@@ -877,8 +918,7 @@ all tests listed in F<$PROJECTS_DIR/$PID/failing_tests/rev-id> are removed.
 sub fix_tests {
     @_ == 2 or die $ARG_ERROR;
     my ($self, $vid) = @_;
-    my $result = Utils::check_vid($vid);
-    my $bid   = $result->{bid};
+    Utils::check_vid($vid);
 
     my $pid = $self->{pid};
     my $dir = $self->test_dir($vid);
@@ -887,7 +927,7 @@ sub fix_tests {
     # -> The bug-mining script that populates the database should deal with any
     # ID conversions.
     my $revision_id = $self->lookup($vid);
-    my $failing_tests_file = "$PROJECTS_DIR/$pid/args_files/$bid/test_info/failing.txt";
+    my $failing_tests_file = "$PROJECTS_DIR/$pid/failing_tests/$revision_id";
     if (-e $failing_tests_file) {
         $self->exclude_tests_in_file($failing_tests_file, $dir);
     }
@@ -898,6 +938,7 @@ sub fix_tests {
         $self->exclude_tests_in_file($dependent_test_file, $dir);
     }
 
+    # TODO Make sure this file is updated in Lang.pm to work with the new format
     # Remove randomly failing tests, if any
     my $random_tests_file = "$PROJECTS_DIR/$pid/random_tests";
     if (-e $random_tests_file) {
@@ -936,7 +977,7 @@ sub monitor_test {
     @_ >= 3 or die $ARG_ERROR;
     my ($self, $single_test, $vid, $test_dir) = @_;
     Utils::check_vid($vid);
-    $single_test =~ /^([^:]+)(::([^:]+))?$/ or die "Wrong format for single test!";
+    $single_test =~ /^([^:]+)(#([^:]+))?$/ or die "Wrong format for single test!";
     $test_dir = $test_dir // "$self->{prog_root}/" . $self->test_dir($vid);
 
     my $log_file = "$self->{prog_root}/classes.log";
@@ -1462,7 +1503,7 @@ sub _write_props {
         $rel_classes = $self->_relevant_classes($bid);
 
         my $project_dir = "$PROJECTS_DIR/$self->{pid}";
-        my $triggers = Utils::get_failing_tests("${project_dir}/trigger_tests/${bid}");
+        my $triggers = Utils::get_failing_tests("${project_dir}/trigger_tests/${bid}", 0);
         $trigger_tests = join(',', (@{$triggers->{classes}}, @{$triggers->{methods}}));
     }
 
