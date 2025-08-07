@@ -158,7 +158,7 @@ sub _init_version {
 # Init routine for Maven builds.
 #
 sub _init_maven {
-    my ($work_dir, $bid, $rev_id) = @_;
+    my ($project, $work_dir, $bid, $rev_id) = @_;
 
     if (! -e "$work_dir/pom.xml") {         
         system("echo \"--------------------- Error with revision ${rev_id} --------------------- \nNo pom file\n\n\" >> $LOG");
@@ -178,14 +178,9 @@ sub _init_maven {
     }
 
     # Copy dependencies to project lib/dependency (ignores dependency if local copy already exists)
-    my $copy_dep = "cd $work_dir && mvn dependency:copy-dependencies -Dmdep.copyPom=true -DoutputDirectory=$DEPENDENCIES -Dmdep.useRepositoryLayout=true" or die "Cannot copy maven dependencies";
-    Utils::exec_cmd($copy_dep, "Copying dependencies for pom.xml.");
-
-    # Construct classpaths for compiling and running source and test code
-    my $source_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=compile -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/source_cp -Dmdep.localRepoProperty=".'{LOCAL_DEPENDENCY_PATH}';
-    Utils::exec_cmd($source_classpath, "Constructing source classpath");
-    my $test_classpath = "cd $work_dir && mvn dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=$ANALYZER_OUTPUT/$bid/test_cp -Dmdep.localRepoProperty=".'{LOCAL_DEPENDENCY_PATH}';
-    Utils::exec_cmd($test_classpath, "Constructing test classpath");
+    if (! $project->run_mvn_copy_dependencies($DEPENDENCIES)) {
+        die "Cannot copy maven dependencies";
+    }
 
     return 1;
 }
@@ -261,7 +256,7 @@ sub _bootstrap {
         return 0;
     }
 
-    my $maven_success = _init_maven($work_dir_b, $bid, $v1) && _init_maven($work_dir_f, $bid, $v2);
+    my $maven_success = _init_maven($project, $work_dir_b, $bid, $v1) && _init_maven($project, $work_dir_f, $bid, $v2);
     if (! $maven_success) {
         printf("      -> Skipping - error with bug\n");
     }

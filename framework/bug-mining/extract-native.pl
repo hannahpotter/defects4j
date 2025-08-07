@@ -122,6 +122,7 @@ pod2usage(1) unless defined $cmd_opts{p} and defined $cmd_opts{w}
 my $PID = $cmd_opts{p};
 my $BID = $cmd_opts{b};
 my $WORK_DIR = abs_path($cmd_opts{w});
+my $TEST_JAR = (dirname(abs_path(__FILE__)) . "/../projects/lib");
 my $TRACKER_ID = $cmd_opts{t};
 my $TRACKER_NAME = $cmd_opts{g};
 $DEBUG = 1 if defined $cmd_opts{D};
@@ -152,7 +153,10 @@ system("mkdir -p $ARGS_FILES");
 -d $FAILING_DIR or die "$FAILING_DIR does not exist: $!";
 
 # Keep log of issues
-my $LOG = "$PROJECTS_DIR/$PID/analyze_project_error_log.txt";
+my $LOG = "$PROJECTS_DIR/$PID/extract_native_error_log.txt";
+
+# skipped tests saved to this file
+my $SKIPPED_TEST_FILE            = "$PROJECTS_DIR/$PID/skipped_tests";
 
 # DB_CSVs directory
 my $db_dir = $WORK_DIR;
@@ -172,10 +176,8 @@ $project->{prog_root} = $TMP_DIR;
 
 # Get database handle for results
 my $dbh_revs = DB::get_db_handle($TAB_REV_PAIRS, $db_dir);
-my $dbh_bootstrap = DB::get_db_handle($TAB_BOOTSTRAP, $db_dir);
-my $dbh_pom = DB::get_db_handle($TAB_POM_FIX, "$PROJECTS_DIR/$PID");
-my @REV_COLS = DB::get_tab_columns($TAB_REV_PAIRS) or die;
-my @POM_COLS = DB::get_tab_columns($TAB_POM_FIX) or die;
+my $dbh_native = DB::get_db_handle($TAB_NATIVE, $db_dir);
+my @COLS = DB::get_tab_columns($TAB_NATIVE) or die;
 
 # Clean up previous log files
 system("rm -f $LOG");
@@ -184,26 +186,20 @@ foreach my $bid (@bids) {
     printf ("%4d: $project->{prog_name}\n", $bid);
 
     # Keep track of revision data
-    my %rev_data;
-    $rev_data{$PROJECT} = $PID;
-    $rev_data{$ID} = $bid;
-    $rev_data{$ISSUE_TRACKER_NAME} = $TRACKER_NAME;
-    $rev_data{$ISSUE_TRACKER_ID} = $TRACKER_ID;
+    my %data;
+    $data{$PROJECT} = $PID;
+    $data{$ID} = $bid;
+    $data{$ISSUE_TRACKER_NAME} = $TRACKER_NAME;
+    $data{$ISSUE_TRACKER_ID} = $TRACKER_ID;
 
-    # Keep track of pom fix data
-    my %pom_data;
-    $pom_data{$PROJECT} = $PID;
-    $pom_data{$ID} = $bid;
-
-    _check_compilation($project, $bid, \%rev_data, \%pom_data) and
-    _export_tests($project, $bid, \%rev_data, \%pom_data);
+    _check_compilation($project, $bid, \%data) and
+    _check_tests($project, $bid, \%data) or next;
 
     # Add data set to result file
-    _add_rows(\%rev_data, \%pom_data);
+    _add_rows(\%data);
 }
 $dbh_revs->disconnect();
-$dbh_bootstrap->disconnect();
-$dbh_pom->disconnect();
+$dbh_native->disconnect();
 system("rm -rf $TMP_DIR") unless $DEBUG;
 
 #
@@ -212,7 +208,7 @@ system("rm -rf $TMP_DIR") unless $DEBUG;
 # Returns 1 on success, 0 otherwise
 #
 sub _check_compilation {
-    my ($project, $bid, $rev_data, $pom_data) = @_;
+    my ($project, $bid, $data) = @_;
 
     # Lookup revision ids
     my $v1  = $project->lookup("${bid}b");
@@ -220,25 +216,40 @@ sub _check_compilation {
 
     my $project_path = $project->{prog_root};
 
+    system("mkdir -p $ARGS_FILES/$bid");
+
     # Checkout v1
-    $project->checkout_vid("${bid}b", $TMP_DIR, 1) == 1 or die;
+    $project->checkout_vid("${bid}b", $TMP_DIR, 1) == 1 or die;    
 
-    # Check that the v1 and t2 compile with maven
-    my $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, "Error compiling source v1 for bug ${bid}");
-    _add_bool_result($rev_data, $COMP_V1, $ret) or return 0;
+    # Construct the args files for compiling source and tests
+    my $source_v1_cp = "$ANALYZER_OUTPUT/$bid/source_v1_cp";
+    $project->run_mvn_build_classpath("compile", $source_v1_cp);
+    $project->construct_javac_args("${bid}b", $source_v1_cp, 1, "$ARGS_FILES/$bid/source_v1_args.txt");
+    # Confirm that the args file is correct for compiling v1 source
+    my $ret = $project->compile("$ARGS_FILES/$bid/source_v1_args.txt", $DEPENDENCIES);
+    _add_bool_result($data, $COMP_V1, $ret) or return 0;
 
-    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile, "Error compiling tests v1t2 for bug ${bid}");
-    _add_bool_result($rev_data, $COMP_T2V1, $ret) or return 0;
+    my $test_cp = "$ANALYZER_OUTPUT/$bid/test_cp";
+    $project->run_mvn_build_classpath("test", $test_cp);
+    $project->construct_javac_args("${bid}b", $test_cp, 0, "$ARGS_FILES/$bid/test_args.txt");
+    # Confirm that the args file is correct for compiling v1t2 tests
+    $ret = $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES);
+    _add_bool_result($data, $COMP_T2V1, $ret) or return 0;
 
     # Checkout v2
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
 
-    # Check that the v2 and t2 compile with maven
-    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, "Error compiling source v2 for bug ${bid}");
-    _add_bool_result($rev_data, $COMP_V2, $ret) or return 0;
+    # Construct the args files for compiling source
+    my $source_v2_cp = "$ANALYZER_OUTPUT/$bid/source_v2_cp";
+    $project->run_mvn_build_classpath("compile", $source_v2_cp);
+    $project->construct_javac_args("${bid}f", $source_v2_cp, 1, "$ARGS_FILES/$bid/source_v2_args.txt");
+    # Confirm that the args file is correct for compiling v2 source
+    $ret = $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES);
+    _add_bool_result($data, $COMP_V2, $ret) or return 0;
 
-    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile, "Error compiling tests v2t2 for bug ${bid}");
-    _add_bool_result($rev_data, $COMP_T2V2, $ret) or return 0;
+    # Confirm that the args file is correct for compiling v2t2 tests
+    $ret = $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES);
+    _add_bool_result($data, $COMP_T2V2, $ret) or return 0;
 }
 
 #
@@ -246,109 +257,43 @@ sub _check_compilation {
 #
 # Returns 1 on success, 0 otherwise
 #
-sub _export_tests {
-    my ($project, $bid, $rev_data, $pom_data) = @_;
+sub _check_tests {
+    my ($project, $bid, $data) = @_;
 
     my $project_path = $project->{prog_root};
+    $project->checkout_vid("${bid}f", $TMP_DIR, 1) or die;
 
-    # Lookup revision ids
-    my $v1 = $project->lookup("${bid}b");
-    my $v2 = $project->lookup("${bid}f");
+    # Compile src and test
+    $project->mvn_compile() or die;
+    $project->mvn_test_compile() or die;
 
-    # Clean previous results
-    `>$FAILING_DIR/$v2` if -e "$FAILING_DIR/$v2";
+    # Run tests with Maven and get number of failing tests
+    $project->run_mvn_tests() or die;
+    my $mvn_failing = Utils::extract_failing_tests_mvn("$project_path/target/surefire-reports");
 
-    # Checkout v2
-    $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
+    # Extract test info from the Maven run
+    system("mkdir -p $ARGS_FILES/$bid/test_info");
+    Utils::mvn_extract_test_info("$project_path/target/surefire-reports", "$ANALYZER_OUTPUT/$bid/test_cp", 'target/classes', 'target/test-classes', '{TEST_LIB_PATH}', "$ARGS_FILES/$bid/test_info");
+    $project->run_mvn_clean();
 
-    my $successful_runs = 0;
-    my $run = 1;
-    while ($successful_runs < $TEST_RUNS && $run <= $MAX_TEST_RUNS) {
-        # Automatically fix broken tests and recompile
-        $project->fix_tests("${bid}f");
+    # Confirm that the results are the same running natively and via Maven
+    open my $version_file, '<', "$ARGS_FILES/$bid/test_info/junit_version.txt";
+    my $junit_version = <$version_file>;
+    close $version_file;
 
-        # Run t2 tests with maven and get the number of failing tests
-        my $ret = _try_command($bid, $project, $pom_data, \&Project::run_mvn_tests, "Error running tests for bug ${bid}");
-        if (! $ret) {
-            $rev_data->{$FAIL_T2V2} = '-';
-            return 0;
-        }
-	
-        # Get number of failing tests
-        my $file = "$TMP_DIR/v2.fail"; `>$file`;
-        my $list = Utils::extract_failing_tests_mvn("$project_path/target/surefire-reports", $file);
-        my $fail = scalar(@{$list->{"classes"}}) + scalar(@{$list->{"methods"}});
-        if ($run == 1) {
-            $rev_data->{$FAIL_T2V2} = $fail;
-        } else {
-            $rev_data->{$FAIL_T2V2} += $fail;
-        }
+    # Run tests natively and check getting same results as maven
+    my $file = "$TMP_DIR/test.output"; `>$file`;
+    $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES);
+    $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES);
+    $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", $DEPENDENCIES, $TEST_JAR, "$ARGS_FILES/$bid/test_info/testsuites.txt", $file);
 
-        ++$successful_runs;
-        # Append to log if there were (new) failing tests
-        # TODO Add list of methods to a particular log and then replace/add new log
-        # getting the stack traces from the native calls
-        unless ($fail == 0) {
-            open(OUT, ">>$FAILING_DIR/$v2") or die "Cannot write failing tests: $!";
-            print OUT "## $project->{prog_name}: $v2 ##\n";
-            close OUT;
-            system("cat $file >> $FAILING_DIR/$v2"); 
-            $successful_runs = 0;
-        }
-        system("rm $file");          
+    system("cat $file");
 
-        ++$run;
-    }
-
+    # PAUSE PLACE - running the tests sort of works - just need to compare results
+    # with Maven to confirm getting the same results
     return 1;
 }
 
-#
-# Attempts the maven command. If there is an error, search the 
-# log for problematic error and attempt a fix until a successful change
-# is found or all patterns have been tried.
-# 
-sub _try_command {
-    @_ == 5 or die $ARG_ERROR;
-    my ($bid, $project, $pom_data, $mvn_cmd, $err_msg) = @_;
-    my $project_path = $project->{prog_root};
-
-    my $original_log;
-    my $original_ret = $mvn_cmd->($project, \$original_log);
-    if (! $original_ret) {
-        open(IN, "<$UTIL_DIR/log_fix.patterns") or die("Cannot read log pattern file");
-        my @patterns = <IN>;
-        close(IN);
-        # Read all elements; skip comments
-        foreach my $l (@patterns) {
-            $l =~ /^\s*#/ and next;
-            chomp($l);
-            $l =~ /([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <issue_name>,<pattern>)");
-            my ($issue_name, $pattern) = split(",", $l);
-            # If the pattern is present in the log, attempt the fix for the issue name
-            if (${original_log} =~ /$pattern/) {
-                $pom_data->{$issue_name} = 1; 
-                Utils::fix_pom("$project_path/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns", $pom_data) if -e "$project_path/pom.xml";
-
-                my $attempt_ret = $mvn_cmd->($project);
-                # If the fix works, make sure that the copy of dependencies is up to date
-                if ($attempt_ret) {
-                    $project->run_mvn_copy_dependencies($DEPENDENCIES);
-                    return $attempt_ret;
-                } else {
-                    $pom_data->{$issue_name} = 0;
-                }
-            }
-        } 
-
-        # No fix was found
-        system("echo \"--------------------- $err_msg --------------------- \n${original_log}\n\n\" >> $LOG");
-        return $original_ret; 
-    }
-
-    # Command works without any fixes needed
-    return $original_ret;
-}
 
 #
 # Insert boolean success into hash
@@ -359,30 +304,22 @@ sub _add_bool_result {
 }
 
 #
-# Add a rows to the database tables
+# Add a rows to the database table
 #
 sub _add_rows {
-    my ($rev_data, $pom_data) = @_;
+    my ($data) = @_;
 
     # Save the revision results
-    my @rev_tmp;
-    foreach (@REV_COLS) {
-        push (@rev_tmp, $dbh_revs->quote((defined $rev_data->{$_} ? $rev_data->{$_} : "-")));
+    my @tmp;
+    foreach (@COLS) {
+        push (@tmp, $dbh_native->quote((defined $data->{$_} ? $data->{$_} : "-")));
     }
-    my $rev_row = join(",", @rev_tmp);
-    $dbh_revs->do("INSERT INTO $TAB_REV_PAIRS VALUES ($rev_row)");
-
-    # Save the pom fix results
-    my @pom_tmp;
-    foreach (@POM_COLS) {
-        push (@pom_tmp, $dbh_pom->quote((defined $pom_data->{$_}? $pom_data->{$_} : "-")));
-    }
-    my $pom_row = join(",", @pom_tmp);
-    $dbh_pom->do("INSERT INTO $TAB_POM_FIX VALUES ($pom_row)");
+    my $row = join(",", @tmp);
+    $dbh_native->do("INSERT INTO $TAB_NATIVE VALUES ($row)");
 }
 
 #
-# Get bug ids from BOOTSTRAP
+# Get bug ids from TAB_REV_PAIRS
 #
 sub _get_bug_ids {
     my $target_bid = shift;
@@ -394,26 +331,21 @@ sub _get_bug_ids {
         $max_id = $3 if defined $3;
     }
 
-    my $sth_exists = $dbh_revs->prepare("SELECT * FROM $TAB_REV_PAIRS WHERE $PROJECT=? AND $ID=?") or die $dbh_revs->errstr;
+    my $sth_exists = $dbh_native->prepare("SELECT * FROM $TAB_NATIVE WHERE $PROJECT=? AND $ID=?") or die $dbh_native->errstr;
 
     # Select all version ids from previous step in workflow
-    my $sth = $dbh_bootstrap->prepare("SELECT $ID FROM $TAB_BOOTSTRAP WHERE $PROJECT=? "
-                . "AND $BOOTSTRAPPED=1") or die $dbh_bootstrap->errstr;
-    $sth->execute($PID) or die "Cannot query database: $dbh_bootstrap->errstr";
+    my $sth = $dbh_revs->prepare("SELECT $ID FROM $TAB_REV_PAIRS WHERE $PROJECT=? "
+                . "AND $COMP_T2V1=1") or die $dbh_revs->errstr;
+    $sth->execute($PID) or die "Cannot query database: $dbh_revs->errstr";
     my @bids = ();
     foreach (@{$sth->fetchall_arrayref}) {
         my $bid = $_->[0];
+        # Skip if project & ID already exist in DB file
+        $sth_exists->execute($PID, $bid);
+        next if ($sth_exists->rows !=0);
 
         # Filter ids if necessary
         next if (defined $min_id && ($bid<$min_id || $bid>$max_id));
-
-        # Skip if project & ID already exist in DB file
-        $sth_exists->execute($PID, $bid);
-        if ($sth_exists->rows !=0) {
-            printf ("%4d: $project->{prog_name}\n", $bid);
-            printf("      -> Skipping (existing entry in $TAB_REV_PAIRS)\n");
-            next;
-        };
 
         # Add id to result array
         push(@bids, $bid);

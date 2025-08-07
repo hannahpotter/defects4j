@@ -325,7 +325,7 @@ sub exclude_tests_in_file {
             "Excluding broken/flaky tests") or die;
 
     # Check whether broken test classes should be excluded
-    my $failed = Utils::get_failing_tests($file, 0);
+    my $failed = Utils::get_failing_tests($file);
     my @classes= @{$failed->{classes}};
 
     return if scalar @classes == 0;
@@ -630,6 +630,51 @@ sub construct_javac_args {
 
 =pod
 
+  $project->run_mvn_copy_dependencies()
+
+Executes mvn dependency:copy-dependencies.
+
+=cut
+
+sub run_mvn_copy_dependencies {
+    @_ == 2 or die $ARG_ERROR;
+    my ($self, $output_directory) = @_;
+
+    # Ignores dependency if local copy already exists
+    my $cmd = " cd $self->{prog_root}" .
+              " && mvn dependency:copy-dependencies" .
+              " -Dmdep.copyPom=true" .
+              " -DoutputDirectory=$output_directory" .
+              " -Dmdep.useRepositoryLayout=true";
+
+    my $ret = Utils::exec_cmd($cmd, "Running maven copy-dependencies");
+    return $ret;
+}
+
+=pod
+
+  $project->run_mvn_build_classpath()
+
+Executes mvn dependency:build-classpath.
+
+=cut
+
+sub run_mvn_build_classpath {
+    @_ == 3 or die $ARG_ERROR;
+    my ($self, $scope, $output_file) = @_;
+
+    my $cmd = " cd $self->{prog_root}" .
+              " && mvn dependency:build-classpath" .
+              " -DincludeScope=$scope ".
+              " -Dmdep.outputFile=$output_file ".
+              " -Dmdep.localRepoProperty=".'{LOCAL_DEPENDENCY_PATH}';
+
+    my $ret = Utils::exec_cmd($cmd, "Running maven build-classpath");
+    return $ret;
+}
+
+=pod
+
   $project->run_mvn_clean()
 
 Executes mvn clean.
@@ -730,7 +775,7 @@ sub compile {
     rename($arg_file . '.bak', $arg_file);
 
     if (defined $log_file) {
-        open(OUT, ">>$log_file") or die "Cannot open log file: $!";
+        open(OUT, ">>$log_file") or die "Cannot open log file: $log_file!";
         print(OUT "$log");
         close(OUT);
     }
@@ -811,29 +856,74 @@ Format of C<single_test>: <classname>::<methodname>.
 
 sub run_tests {
     @_ >= 2 or die $ARG_ERROR;
-    my ($self, $out_file, $single_test) = @_;
+    my ($self, $version, $arg_file, $dependencies, $test_jar, $test_classes, $out_file, $single_test) = @_;
 
-    my $single_test_opt = "";
-    if (defined $single_test) {
-        $single_test =~ /([^:]+)::([^:]+)/ or die "Wrong format for single test!";
-        $single_test_opt = "-Dtest.entry.class=$1 -Dtest.entry.method=$2";
+    if ($version != "3" && $version != "4" && $version != "5") {
+        die "Unhandled JUnit version: $version";
     }
 
-    # For JUnit 3? and 4 use the SingleTestRunner class
-    # For JUnit 5 use java -jar junit-platform-console-standalone-1.11.3.jar execute -cp <classpath-for-the-class-under-test> --select=method:hello.HelloTest#hi
+    # Set the arg file dependencies
+    rename($arg_file, $arg_file . '.bak');
+    open(IN, '<' . $arg_file . '.bak') or die $!;
+    open(OUT, '>' . $arg_file) or die $!;
+    while(<IN>)
+    {
+        $_ =~ s/{LOCAL_DEPENDENCY_PATH}/$dependencies/g;
+        $_ =~ s/{TEST_LIB_PATH}/$test_jar/g;
+        print OUT $_;
+    }
+    close(IN);
+    close(OUT);
 
-    #my ($self, $arg_file, $log_file) = @_;
+    my $cmd;
+    # TODO Test defining a single test case
+    if (defined $single_test) {
+        $single_test =~ /([^:]+)::([^:]+)/ or die "Wrong format for single test!";
+        my $class=$1;
+        my $method=$2;
+        if ($version == "3" || $version == "4") {
+            # For JUnit 3? and 4 use the SingleTestRunner class
+        } elsif ($version == "5") {
+            # For JUnit 5 use java -jar junit-platform-console-standalone-1.9.3.jar execute -cp <classpath-for-the-class-under-test> --select=method:hello.HelloTest#hi
+        } 
+    } else {
+        my $seperator;
+        if ($version == "3") {
+            $seperator = " ";
+            $cmd = "junit.textui.TestRunner";
+        } elsif ($version == "4") {
+            $seperator = " ";
+            $cmd = "org.junit.runner.JUnitCore"
+        } elsif ($version == "5") {
+            $seperator = " --select-class=";
+            $cmd = "-jar $test_jar/junit-platform-console-standalone-1.9.3.jar execute"
+        }
+        open my $fh, '<', $test_classes or die "Could not open test classes: $test_classes";
+        while (my $line = <$fh>) {
+            chomp $line;
+            $cmd = "$cmd$seperator$line";
+        }
+    }
 
-    #my $cmd = " cd $self->{prog_root}" .
-    #          " && java" .
-    #          " -jar ".
-    #          " @$arg_file" .
-    #          "  2>&1";
-    #my $log;
-    #my ($self, $out_file, $single_test) = @_;
-    #my $ret = Utils::exec_cmd($cmd, "Running javac compile", \$log);*/
+    $cmd = " cd $self->{prog_root}" .
+              " && java" .
+             " @"."$arg_file" .
+              " $cmd" .
+              "  2>&1";
+    my $log;
+    my $ret = Utils::exec_cmd($cmd, "Running junit tests", \$log);
 
-    return $self->_ant_call_comp("run.dev.tests", "-DOUTFILE=$out_file $single_test_opt");
+    # Reset the arg file dependencies
+    system("rm -f $arg_file");
+    rename($arg_file . '.bak', $arg_file);
+
+    if (defined $out_file) {
+        open(OUT, ">>$out_file") or die "Cannot open log file: $out_file!";
+        print(OUT "$log");
+        close(OUT);
+    }
+
+    return $ret;
 }
 
 =pod
@@ -938,7 +1028,6 @@ sub fix_tests {
         $self->exclude_tests_in_file($dependent_test_file, $dir);
     }
 
-    # TODO Make sure this file is updated in Lang.pm to work with the new format
     # Remove randomly failing tests, if any
     my $random_tests_file = "$PROJECTS_DIR/$pid/random_tests";
     if (-e $random_tests_file) {
@@ -1503,7 +1592,7 @@ sub _write_props {
         $rel_classes = $self->_relevant_classes($bid);
 
         my $project_dir = "$PROJECTS_DIR/$self->{pid}";
-        my $triggers = Utils::get_failing_tests("${project_dir}/trigger_tests/${bid}", 0);
+        my $triggers = Utils::get_failing_tests("${project_dir}/trigger_tests/${bid}");
         $trigger_tests = join(',', (@{$triggers->{classes}}, @{$triggers->{methods}}));
     }
 

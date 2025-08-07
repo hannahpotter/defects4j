@@ -852,6 +852,8 @@ sub append_dependent_test_log {
         $old_dom = XML::LibXML->load_xml(location => $dependent_log) or die("Cannot read the failing test log file: $dependent_log");
     }
 
+    print '//testsuite[@name="$class"]\n';
+
     # Append to the test suite if it is already in the log
     my ($old_test_suite) = $old_dom->findnodes('//testsuite[@name="$class"]');
     if (! $old_test_suite) {
@@ -875,52 +877,75 @@ sub append_dependent_test_log {
     }
 }
 
-sub append_failing_test_log {
-    @_ >= 2 or die $ARG_ERROR;
-    my ($failing_log, $new_failing_test_log, $comment) = @_;
+=pod
 
-    if (! (-e $failing_log)) {
-        open my $src, '<', $new_failing_test_log or die ("Cannot open new failing log: $new_failing_test_log");
-        $failing_log = IO::File->new(">$failing_log") or die("Cannot write to failing log: $failing_log!");
-        if (defined $comment) {
-            print $failing_log "<!--$comment-->\n";
+=item C<Utils::get_failing_tests(test_result_file)>
+
+Determines all failing test classes and test methods in F<test_result_file>,
+which may contain arbitrary lines. A line indicating a test failure matches the
+following pattern: C</--- ([^:]+)(::([^:]+))?/>.
+
+This subroutine returns a reference to a hash that contains three keys (C<classes>,
+C<methods>, and C<asserts>), which map to lists of failing tests:
+
+  {classes} => [org.foo.Class1 org.bar.Class2]
+  {methods} => [org.foo.Class3::method1 org.foo.Class3::method2]
+  {asserts} => {org.foo.Class3::method1} => 4711
+
+=cut
+
+sub get_failing_tests {
+    @_ == 1 or die $ARG_ERROR;
+    my ($file_name) = @_;
+
+    my $list = {
+        classes => [],
+        methods => [],
+        asserts => {}
+    };
+    open FILE, $file_name or die "Cannot open test result file ($file_name): $!";
+    my @lines = <FILE>;
+    close FILE;
+    for (my $i=0; $i <= $#lines; ++$i) {
+        local $_ = $lines[$i];
+        chomp;
+        /--- ([^:]+)(::([^:]+))?/ or next;
+        my $class = $1;
+        my $method= $3;
+        if (defined $method) {
+            push(@{$list->{methods}}, "${class}::$method");
+            # Read first line of stack trace to determine the failure reason.
+            my $reason = $lines[$i+1];
+            if (defined $reason and $reason =~ /junit.framework.AssertionFailedError/) {
+                $class =~ /(.*\.)?([^.]+)/ or die "Couldn't determine class name: $class!";
+                my $classname = $2;
+                ++$i;
+                while ($lines[$i] !~ /---/) {
+                    if ($lines[$i] =~ /junit\./) {
+                        # Skip junit entries in the stack trace
+                        ++$i;
+                    } elsif ($lines[$i] =~ /$classname\.java:(\d+)/) {
+                        # We found the right entry in the stack trace
+                        my $line = $1;
+                        $list->{asserts}->{"${class}::$method"} = $line;
+                        last;
+                    } else {
+                        # The stack trace isn't what we expected -- give up and continue
+                        # with the next triggering test
+                        last;
+                    }
+                }
+            } 
+        }  else {
+            push(@{$list->{classes}}, $class);
         }
-        while (my $line = <$src>) {
-            print $failing_log $line;
-        }
-        $failing_log->flush();
-        $failing_log->close();
-        $src->close();
-        return;
     }
-
-    my $old_dom = XML::LibXML->load_xml(location => $failing_log) or die("Cannot read the failing test log file: $failing_log");
-    my $new_dom = XML::LibXML->load_xml(location => $new_failing_test_log) or die("Cannot read the failing test log file: $new_failing_test_log");
-
-    foreach my $new_test_suite ($new_dom->findnodes('//testsuite')) {
-        my $class = $new_test_suite->getAttribute('name');
-
-        # Append to the test suite if it is already in the log
-        my ($old_test_suite) = $old_dom->findnodes('//testsuite[@name="$class"]');
-        if ($old_test_suite) {
-            foreach my $new_test_method ($new_test_suite->findnodes('./testcase')) {
-                $old_test_suite->addChild($new_test_method);
-            }
-        } else {
-            $old_dom->documentElement()->addChild($new_test_suite);
-        }
-    }
-
-    unlink($failing_log);
-    my $log = IO::File->new(">$failing_log") or die("Cannot overwrite failing log: $failing_log!");
-    print $log $old_dom;
-    $log->flush();
-    $log->close();
+    return $list;
 }
 
 =pod
 
-=item C<Utils::get_failing_tests(test_result_file [, output_file])>
+=item C<Utils::extract_failing_tests_mvn(test_result_file [, output_file])>
 
 Determines all failing test classes and test methods in F<test_result_file>,
 which may contain arbitrary lines. A line indicating a test failure matches the
@@ -936,62 +961,41 @@ C<methods>, and C<asserts>), which map to lists of failing tests:
 
 =cut
 
-sub get_failing_tests {
-    @_ >= 2 or die $ARG_ERROR;
-    my ($results_path, $is_folder, $output_file) = @_;
+sub extract_failing_tests_mvn {
+    @_ >= 1 or die $ARG_ERROR;
+    my ($folder_name, $output_file) = @_;
 
     my $list = {
         classes => [],
         methods => [],
-        asserts => {}
     };
-
-    # No test results yet
-    if (($is_folder && !(-d $results_path)) || (!$is_folder && !(-e $results_path))) {
-        return $list;
-    }
 
     my $fh;
     if (defined $output_file) {
         open($fh, '>', "$output_file") or die "Cannot open file to write $output_file";                  
     }
 
-    my @files;
-    if ($is_folder){
-        opendir my($dirhandle), $results_path;
-        @files = map { "$results_path/$_" } (grep { /\.xml$/ } readdir $dirhandle);
-    } else {
-        @files = ($results_path);
+    # No test results yet
+    if (!(-d $folder_name)) {
+        return $list;
     }
 
-    my $dom;
-    my $root;
-    if (defined $output_file) {
-        $dom = XML::LibXML::Document->new('1.0', 'UTF-8');
-        $root = $dom->createElement('root');
-        $dom->setDocumentElement($root);
-    }
+    opendir my($dirhandle), $folder_name;
+    my @files = grep { /\.xml$/ } readdir $dirhandle;
 
     foreach my $file (@files) {
-        my $dom = XML::LibXML->load_xml(location => "$file") or die("Cannot read the xml file: $file");
+        my $dom = XML::LibXML->load_xml(location => "$folder_name/$file") or die("Cannot read the xml file: $file");
         foreach my $test_suite ($dom->findnodes('//testsuite')) {
             my $num_tests = scalar($test_suite->getAttribute('tests'));
             my $errors = scalar($test_suite->getAttribute('errors'));
-            my $skipped = scalar($test_suite->getAttribute('skipped'));
             my $failures = scalar($test_suite->getAttribute('failures'));
 
             my $class = $test_suite->getAttribute('name');
 
-            my $parent;
-            if (defined $output_file) {
-                $parent = $dom->createElement('testsuite');
-                $parent->setAttribute('name', $class);
-            }
-
-            # TODO when would just have a class?
-            #if ($num_tests == ($errors + $skipped + $failures)) {
-            #    push(@{$list->{classes}}, $class);
-            #} else {
+            if ($num_tests != 0 && $num_tests == ($errors + $failures)) {
+                print "Failing class? $class\n";
+                push(@{$list->{classes}}, $class);
+            } else {
                 my $found = 0;
                 # Find the test cases with errors
                 foreach my $test_case_error ($test_suite->findnodes('./testcase/failure '
@@ -1001,42 +1005,37 @@ sub get_failing_tests {
                                                                  .'| ./testcase/rerunError '
                                                                  .'| ./testcase/flakyError')) {
                     my $method = $test_case_error->getParentNode->getAttribute('name');
-                    print(STDERR "FAILING: ${class}#$method\n");
-                    push(@{$list->{methods}}, "${class}#$method");
-                    # TODO get info about asserts?
+                    push(@{$list->{methods}}, "${class}::$method");
 
                     if (defined $output_file) {
+                        print "Failing method? ${class}::$method\n";
                         my $test_output = $test_case_error->getParentNode;
-                        $parent->appendChild($test_output);
+                        print $fh "--- ${class}::$method\n";
                     }
                 }
-
-                if (defined $output_file) {
-                    $root->appendChild($parent);
-                }
-            #}
+            }
         }
     }
+
     if (defined $output_file) {
-        print $fh $dom;
-        $fh->flush();
-        $fh->close();
+        close $fh;
     }
+
     return $list;
 }
 
 =pod
 
-=item C<Utils::extract_test_info(test_result_folder, dependency_file, classes_path, test_classes_path, output_folder)>
+=item C<Utils::mvn_extract_test_info(test_result_folder, dependency_file, classes_path, test_classes_path, output_folder)>
 
 TODO
 
 
 =cut
 
-sub extract_test_info {
-    @_ == 5 or die $ARG_ERROR;
-    my ($test_result_folder, $dependency_file, $classes_path, $test_classes_path, $output_folder) = @_;
+sub mvn_extract_test_info {
+    @_ == 6 or die $ARG_ERROR;
+    my ($test_result_folder, $dependency_file, $classes_path, $test_classes_path, $test_jar, $output_folder) = @_;
 
     ##### Extract the test results
     opendir my($result_dirhandle), $test_result_folder;
@@ -1053,12 +1052,18 @@ sub extract_test_info {
         
         # Record the test suites
         foreach my $test_suite ($dom->findnodes('//testsuite')) {
+            my $num_tests = scalar($test_suite->getAttribute('tests'));
+            my $skipped = scalar($test_suite->getAttribute('skipped'));
             my $class = $test_suite->getAttribute('name');
-            print $test_suites "$class\n";
+
+            # Tests skipped with Maven should also be skipped when running natively
+            if ($num_tests != $skipped) {
+                print $test_suites "$class\n";
+            }
         }
 
         # Record test cases
-        # Format: <test_class>#<test_method>
+        # Format: <test_class>::<test_method>
         foreach my $test_case ($dom->findnodes("//testcase")) {
             my $record = 1;
             my $unknown_type = 1;
@@ -1077,7 +1082,7 @@ sub extract_test_info {
                                 .'| ./error '
                                 .'| ./rerunError '
                                 .'| ./flakyError')) {
-                print $failing_tests "--- $classname#$testcasename\n";
+                print $failing_tests "--- $classname"."::"."$testcasename\n";
                 foreach my $child ($test_case->childNodes()) {
                     print $failing_tests "$child\n";
                 }
@@ -1087,7 +1092,7 @@ sub extract_test_info {
             # System output
             if ($test_case->exists('./system-err '
                                 .'| ./system-out ')) {
-                print $sysout_tests "--- $classname#$testcasename\n";
+                print $sysout_tests "--- $classname"."::"."$testcasename\n";
                 foreach my $child ($test_case->childNodes()) {
                     print $sysout_tests "$child\n";
                 }
@@ -1096,7 +1101,7 @@ sub extract_test_info {
 
             # Skipped test cases
             if ($test_case->exists('./skipped')) {
-                print $skipped_tests "--- $classname#$testcasename\n";
+                print $skipped_tests "--- $classname"."::"."$testcasename\n";
                 foreach my $child ($test_case->childNodes()) {
                     print $skipped_tests "$child\n";
                 }
@@ -1110,7 +1115,7 @@ sub extract_test_info {
             }
 
             if ($record) {
-                print $test_cases "$classname#$testcasename\n";
+                print $test_cases "$classname"."::"."$testcasename\n";
             }
         }
     }
@@ -1128,8 +1133,10 @@ sub extract_test_info {
     close $dependency;
 
     open my $args, '>', "$output_folder/args_junit.txt" or die "Can't open junit args file\n";
-    my $classpath = "$test_classes_path:$classes_path$dependency_path";
-    print $args "--classpath $classpath\n";
+    # TODO The separator is different for Windows machines
+    # TODO Do we always have to add hamcrest? Does it hurt anything to always do it?
+    my $classpath = "$test_classes_path:$classes_path$dependency_path:".'{TEST_LIB_PATH}'."/junit-4.12.hamcrest-1.3.jar";
+    print $args "-cp $classpath\n";
     close $args;
 
     ##### Extract the JUnit version

@@ -82,6 +82,16 @@ our $TAB_REV_PAIRS = ($ENV{TAB_REV_PAIRS} or "rev_pairs");
 
 =pod
 
+=item C<TAB_NATIVE>
+
+The name of the database table for the results of extracting native java command information (I<native>)
+
+=cut
+
+our $TAB_NATIVE = ($ENV{TAB_NATIVE} or "native");
+
+=pod
+
 =item C<TAB_POM_FIX>
 
 The name of the database table for fixing pom issues that can't be determined just from looking at the pom (I<pom_fix>)
@@ -173,15 +183,16 @@ our $DIFF_TEST     = "diff_size_test";
 our $BOOTSTRAPPED  = "bootstrapped";
 
 # Additional columns of TAB_REV_PAIRS
+# TODO should tracker_name and tracker_id be in Bootstrap? Probably...
 our $ISSUE_TRACKER_NAME = "tracker_name";
 our $ISSUE_TRACKER_ID = "tracker_id";
+
+# Additional columns of TAB_REV_PAIRS and TAB_NATIVE
 our $COMP_V2       = "compile_v2";
 our $COMP_T2V2     = "compile_t2v2";
 our $FAIL_T2V2     = "num_fail_t2v2";
 our $COMP_V1       = "compile_v1";
 our $COMP_T2V1     = "compile_t2v1";
-our $MIN_SRC       = "minimized_src_patch";
-our $REVIEW_TESTS  = "reviewed_tests_t2v2";
 
 # Additional columns for TAB_POM_FIX
 our $BUNDLE = "bundle"; # org.apache.felix:maven-bundle-plugin version 5.1.9 works with Java 11
@@ -228,7 +239,9 @@ my %tables = (
 # TAB_BOOTSTRAP
 $TAB_BOOTSTRAP => [$PROJECT, $ID, $DIFF_SRC, $DIFF_TEST, $BOOTSTRAPPED],
 # TAB_REV_PAIRS
-$TAB_REV_PAIRS => [$PROJECT, $ID, $ISSUE_TRACKER_NAME, $ISSUE_TRACKER_ID, $COMP_V2, $COMP_T2V2, $FAIL_T2V2, $COMP_V1, $COMP_T2V1, $MIN_SRC, $REVIEW_TESTS],
+$TAB_REV_PAIRS => [$PROJECT, $ID, $ISSUE_TRACKER_NAME, $ISSUE_TRACKER_ID, $COMP_V2, $COMP_T2V2, $FAIL_T2V2, $COMP_V1, $COMP_T2V1],
+# TAB_NATIVE
+$TAB_NATIVE => [$PROJECT, $ID, $ISSUE_TRACKER_NAME, $ISSUE_TRACKER_ID, $COMP_V2, $COMP_T2V2, $FAIL_T2V2, $COMP_V1, $COMP_T2V1],
 # TAB_POM_FIX
 $TAB_POM_FIX => [$PROJECT, $ID, $BUNDLE, $SUREFIRE],
 # Table TAB_TRIGGER
@@ -251,6 +264,7 @@ our %PRIMARY_KEYS = (
     $TAB_BOOTSTRAP => 2,
     $TAB_REV_PAIRS => 2,
     $TAB_POM_FIX => 2,
+    $TAB_NATIVE => 2,
     $TAB_TRIGGER => 2,
     $TAB_BUG_DETECTION => 4,
     $TAB_MUTATION => 4,
@@ -264,6 +278,7 @@ $DB_DIR
 $TAB_BOOTSTRAP
 $TAB_REV_PAIRS
 $TAB_POM_FIX
+$TAB_NATIVE
 $TAB_TRIGGER
 $TAB_BUG_DETECTION
 $TAB_MUTATION
