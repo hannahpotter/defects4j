@@ -224,14 +224,14 @@ sub _check_compilation {
     # Construct the args files for compiling source and tests
     my $source_v1_cp = "$ANALYZER_OUTPUT/$bid/source_v1_cp";
     $project->run_mvn_build_classpath("compile", $source_v1_cp);
-    $project->construct_javac_args("${bid}b", $source_v1_cp, 1, "$ARGS_FILES/$bid/source_v1_args.txt");
+    $project->construct_javac_args("${bid}b", $source_v1_cp, 1, "$ARGS_FILES/$bid/source_v1_args.txt", "$ARGS_FILES/$bid/source_v1_cmd");
     # Confirm that the args file is correct for compiling v1 source
     my $ret = $project->compile("$ARGS_FILES/$bid/source_v1_args.txt", $DEPENDENCIES);
     _add_bool_result($data, $COMP_V1, $ret) or return 0;
 
     my $test_cp = "$ANALYZER_OUTPUT/$bid/test_cp";
     $project->run_mvn_build_classpath("test", $test_cp);
-    $project->construct_javac_args("${bid}b", $test_cp, 0, "$ARGS_FILES/$bid/test_args.txt");
+    $project->construct_javac_args("${bid}b", $test_cp, 0, "$ARGS_FILES/$bid/test_args.txt", "$ARGS_FILES/$bid/test_args_cmd");
     # Confirm that the args file is correct for compiling v1t2 tests
     $ret = $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES);
     _add_bool_result($data, $COMP_T2V1, $ret) or return 0;
@@ -242,7 +242,7 @@ sub _check_compilation {
     # Construct the args files for compiling source
     my $source_v2_cp = "$ANALYZER_OUTPUT/$bid/source_v2_cp";
     $project->run_mvn_build_classpath("compile", $source_v2_cp);
-    $project->construct_javac_args("${bid}f", $source_v2_cp, 1, "$ARGS_FILES/$bid/source_v2_args.txt");
+    $project->construct_javac_args("${bid}f", $source_v2_cp, 1, "$ARGS_FILES/$bid/source_v2_args.txt", "$ARGS_FILES/$bid/source_v2_cmd");
     # Confirm that the args file is correct for compiling v2 source
     $ret = $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES);
     _add_bool_result($data, $COMP_V2, $ret) or return 0;
@@ -285,12 +285,13 @@ sub _check_tests {
     my $file = "$TMP_DIR/test.output"; `>$file`;
     $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES);
     $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES);
-    $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", $DEPENDENCIES, $TEST_JAR, "$ARGS_FILES/$bid/test_info/testsuites.txt", $file);
+    $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, "$ARGS_FILES/$bid/test_info/testsuites.txt", $file);
 
     system("cat $file");
 
-    # PAUSE PLACE - running the tests sort of works - just need to compare results
-    # with Maven to confirm getting the same results
+    # PAUSE PLACE -  need to compare results with Maven to confirm getting the same results
+    # Extract total number of tests from each
+    # Compare failing
     return 1;
 }
 

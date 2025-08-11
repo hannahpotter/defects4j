@@ -303,7 +303,6 @@ sub _run_tests_isolation {
         $project->run_single_mvn_test($test);
         my $fail = Utils::get_failing_tests("$root/target/surefire-reports", 1, $FAILED_TESTS_FILE_SINGLE);
         my $num_failed = scalar(@{$fail->{methods}});
-        print(STDERR "FAILED: $num_failed\n");
         if (scalar(@{$fail->{methods}}) == $expect_fail) {
             push @succeeded_tests, $test;
             Utils::append_failing_test_log($FAILED_TESTS_FILE, $FAILED_TESTS_FILE_SINGLE); # save results of single test to overall file.

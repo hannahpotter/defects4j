@@ -387,7 +387,7 @@ sub fix_dependency_urls {
         if (! $multi_line) {
             push(@regexes, [qr/$find/, $repl]);
         } else {
-            print(STDERR "Multi-line matching enabled.\n");
+            print(STDERR "Multi-line matching enabled.\n") if $DEBUG;
             push(@regexes, [qr/$find/ms, $repl]);
             # Replace the list of lines with a single entry, if multi-line match
             # is enabled. This allows us to use the same iteration over all
@@ -1134,8 +1134,12 @@ sub mvn_extract_test_info {
 
     open my $args, '>', "$output_folder/args_junit.txt" or die "Can't open junit args file\n";
     # TODO The separator is different for Windows machines
-    # TODO Do we always have to add hamcrest? Does it hurt anything to always do it?
-    my $classpath = "$test_classes_path:$classes_path$dependency_path:".'{TEST_LIB_PATH}'."/junit-4.12.hamcrest-1.3.jar";
+    # Ensure hamcrest is on the dependency path
+    my $hamcrest = "";
+    if ($dependency_path !~ /hamcrest/) {
+        $hamcrest = ":".'{TEST_LIB_PATH}'."/junit-4.12.hamcrest-1.3.jar";
+    }
+    my $classpath = "$test_classes_path:$classes_path$dependency_path$hamcrest";
     print $args "-cp $classpath\n";
     close $args;
 

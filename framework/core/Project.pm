@@ -502,6 +502,7 @@ sub checkout_vid {
     # since the buggy version is derived by applying a source-code patch).
     for my $build_file (("build.xml", "maven-build.xml", "pom.xml", "project.xml", "project.properties", "default.properties", "maven-build.properties")) {
         Utils::fix_dependency_urls("$work_dir/$build_file", "$UTIL_DIR/fix_dependency_urls.patterns", 0) if -e "$work_dir/$build_file";
+        Utils::fix_dependency_urls("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_urls.patterns", 1) if -e "$work_dir/pom.xml";
     }
     my $conditional_fixes = $self->get_conditional_pom_fixes($bid);
     Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns", $conditional_fixes) if -e "$work_dir/pom.xml";
@@ -570,15 +571,16 @@ sub checkout_vid {
 Construct the javac args for compiling C<vid>. 
 C<dependencies> is the path for the classpaths.
 C<for_src> should be 1 for constructing the args for the src, 0 for the tests.
-C<output> is where the args file should be written to. 
+C<args_output> is where the args file should be written to. 
+C<cmd_output> is where any extra post-processing commands after compilation should be written to. 
 
 =cut
 
 sub construct_javac_args {
-    @_ == 5 or die $ARG_ERROR;
-    my ($self, $vid, $dependencies, $for_src, $output) = @_;
+    @_ == 6 or die $ARG_ERROR;
+    my ($self, $vid, $dependencies, $for_src, $args_output, $cmd_output) = @_;
 
-    open my $args_file, '>', $output;
+    open my $args_file, '>', $args_output;
 
     # Get the classpath for the dependencies
     my $classpath = "target/classes";
@@ -625,7 +627,15 @@ sub construct_javac_args {
         print $args_file $file;
     }
 
-    close $output;
+    # Construct any additional processing commands needed to run tests natively
+    # - Look for resources folder, which need to be copied over
+    if (-d "$self->{prog_root}/$local_path/../resources") {
+        open my $cmd_file, '>', $cmd_output;
+        print $cmd_file "cp -r $local_path/../resources/. $target";
+        close $cmd_output;
+    }
+
+    close $args_output;
 }
 
 =pod
@@ -748,7 +758,7 @@ If F<log_file> is provided, the compiler output is written to this file.
 =cut
 
 sub compile {
-    @_ >= 2 or die $ARG_ERROR;
+    @_ >= 3 or die $ARG_ERROR;
     my ($self, $arg_file, $dependencies, $log_file) = @_;
 
     # Set the arg file dependencies
@@ -856,7 +866,7 @@ Format of C<single_test>: <classname>::<methodname>.
 
 sub run_tests {
     @_ >= 2 or die $ARG_ERROR;
-    my ($self, $version, $arg_file, $dependencies, $test_jar, $test_classes, $out_file, $single_test) = @_;
+    my ($self, $version, $arg_file, $preprocess_cmd, $dependencies, $test_jar, $test_classes, $out_file, $single_test) = @_;
 
     if ($version != "3" && $version != "4" && $version != "5") {
         die "Unhandled JUnit version: $version";
@@ -903,6 +913,13 @@ sub run_tests {
             chomp $line;
             $cmd = "$cmd$seperator$line";
         }
+    }
+
+    if (defined $preprocess_cmd && -e $preprocess_cmd) {
+        open my $preprocess_file, '<', "$preprocess_cmd";
+        my $pre_cmd = <$preprocess_file>;
+        close $preprocess_file;
+        Utils::exec_cmd("cd $self->{prog_root} && $pre_cmd", "Running setup for junit tests");
     }
 
     $cmd = " cd $self->{prog_root}" .
