@@ -267,6 +267,7 @@ sub _check_compilation {
 
 #
 # Confirm that native test runs match maven test runs.
+# TODO currently checks this for t2v2; does this also need to be done for t2v1?
 #
 # Returns 1 on success, 0 otherwise
 #
@@ -300,7 +301,7 @@ sub _check_tests {
     my $file = "$TMP_DIR/test.output"; `>$file`;
     $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES);
     $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES);
-    $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, "$ARGS_FILES/$bid/test_info/testsuites.txt", $file);
+    $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/source_v2_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, "$ARGS_FILES/$bid/test_info/testsuites.txt", $file);
     my $native_failing = Utils::get_failing_tests($file);
     my $num_fail_native = scalar(@{$native_failing->{"classes"}}) + scalar(@{$native_failing->{"methods"}});
     my ($num_total_native, $num_fail_summary_native) = Utils::get_test_summary($file);
@@ -363,10 +364,9 @@ sub _get_bug_ids {
 
     my $sth_exists = $dbh_native->prepare("SELECT * FROM $TAB_NATIVE WHERE $PROJECT=? AND $ID=?") or die $dbh_native->errstr;
 
-    # TODO only select from previous version where all the compilation is in order
     # Select all version ids from previous step in workflow
     my $sth = $dbh_revs->prepare("SELECT $ID FROM $TAB_REV_PAIRS WHERE $PROJECT=? "
-                . "AND $COMP_T2V1=1") or die $dbh_revs->errstr;
+                . "AND $COMP_T2V2=1") or die $dbh_revs->errstr;
     $sth->execute($PID) or die "Cannot query database: $dbh_revs->errstr";
     my @bids = ();
     foreach (@{$sth->fetchall_arrayref}) {

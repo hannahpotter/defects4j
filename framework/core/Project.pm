@@ -862,7 +862,7 @@ Format of C<single_test>: <classname>::<methodname>.
 
 sub run_tests {
     @_ >= 2 or die $ARG_ERROR;
-    my ($self, $version, $arg_file, $preprocess_cmd, $dependencies, $test_jar, $test_classes, $out_file, $single_test) = @_;
+    my ($self, $version, $arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $dependencies, $test_jar, $test_classes, $out_file, $single_test) = @_;
 
     if ($version != "3" && $version != "4" && $version != "5") {
         die "Unhandled JUnit version: $version";
@@ -904,15 +904,22 @@ sub run_tests {
         open my $fh, '<', $test_classes or die "Could not open test classes: $test_classes";
         while (my $line = <$fh>) {
             chomp $line;
+            $line =~ s/\$/\\\$/g;
             $cmd = "$cmd$seperator$line";
         }
     }
 
-    if (defined $preprocess_cmd && -e $preprocess_cmd) {
-        open my $preprocess_file, '<', "$preprocess_cmd";
-        my $pre_cmd = <$preprocess_file>;
-        close $preprocess_file;
-        Utils::exec_cmd("cd $self->{prog_root} && $pre_cmd", "Running setup for junit tests");
+    if (defined $preprocess_src_cmd && -e $preprocess_src_cmd) {
+        open my $preprocess_src_file, '<', "$preprocess_src_cmd";
+        my $pre_src_cmd = <$preprocess_src_file>;
+        close $preprocess_src_file;
+        Utils::exec_cmd("cd $self->{prog_root} && $pre_src_cmd", "Running setup for junit tests");
+    }
+    if (defined $preprocess_test_cmd && -e $preprocess_test_cmd) {
+        open my $preprocess_test_file, '<', "$preprocess_test_cmd";
+        my $pre_test_cmd = <$preprocess_test_file>;
+        close $preprocess_test_file;
+        Utils::exec_cmd("cd $self->{prog_root} && $pre_test_cmd", "Running setup for junit tests");
     }
 
     $cmd = " cd $self->{prog_root}" .
@@ -937,7 +944,7 @@ sub run_tests {
         {
             my $prefix = "--- ";
             $line =~ s/\d+\) ([^\\[\\(]*)(\\[.*\\])?\((.*)\)\s*/$prefix$3::$1/g;
-            #$line =~ s/(.*):(.*)\s*/$1::$2/g; TODO See if this is necessary
+            #$line =~ s/(.*):(.*)\s*/$1::$2/g; TODO See if this is necessary and other parts from Formatter.java
             print OUT "$line\n";
         }
         close(OUT);
