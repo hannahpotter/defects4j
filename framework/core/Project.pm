@@ -628,7 +628,7 @@ sub construct_javac_args {
     }
 
     # Construct any additional processing commands needed to run tests natively
-    # - Look for resources folder, which need to be copied over
+    # - Look for resources folder, which needs to be copied over
     if (-d "$self->{prog_root}/$local_path/../resources") {
         open my $cmd_file, '>', $cmd_output;
         print $cmd_file "cp -r $local_path/../resources/. $target";
@@ -759,7 +759,7 @@ If F<log_file> is provided, the compiler output is written to this file.
 
 sub compile {
     @_ >= 3 or die $ARG_ERROR;
-    my ($self, $arg_file, $dependencies, $log_file) = @_;
+    my ($self, $arg_file, $dependencies, $log_ref) = @_;
 
     # Set the arg file dependencies
     rename($arg_file, $arg_file . '.bak');
@@ -784,11 +784,7 @@ sub compile {
     system("rm -f $arg_file");
     rename($arg_file . '.bak', $arg_file);
 
-    if (defined $log_file) {
-        open(OUT, ">>$log_file") or die "Cannot open log file: $log_file!";
-        print(OUT "$log");
-        close(OUT);
-    }
+    $$log_ref = $log if defined $log_ref;
     return $ret;
 }
 
@@ -898,12 +894,9 @@ sub run_tests {
         } 
     } else {
         my $seperator;
-        if ($version == "3") {
+        if ($version == "3" || $version == "4") {
             $seperator = " ";
-            $cmd = "junit.textui.TestRunner";
-        } elsif ($version == "4") {
-            $seperator = " ";
-            $cmd = "org.junit.runner.JUnitCore"
+            $cmd = "org.junit.runner.JUnitCore"; # Works for version 4 and 3.8.x
         } elsif ($version == "5") {
             $seperator = " --select-class=";
             $cmd = "-jar $test_jar/junit-platform-console-standalone-1.9.3.jar execute"
@@ -935,8 +928,18 @@ sub run_tests {
     rename($arg_file . '.bak', $arg_file);
 
     if (defined $out_file) {
+        # Process the log file to be correct format
+        # The expected format for failing tests in Defects4J is:
+        # --- <class name>[::<method name>]
         open(OUT, ">>$out_file") or die "Cannot open log file: $out_file!";
-        print(OUT "$log");
+        my @lines = split /\n/, $log;
+        foreach my $line (@lines)
+        {
+            my $prefix = "--- ";
+            $line =~ s/\d+\) ([^\\[\\(]*)(\\[.*\\])?\((.*)\)\s*/$prefix$3::$1/g;
+            #$line =~ s/(.*):(.*)\s*/$1::$2/g; TODO See if this is necessary
+            print OUT "$line\n";
+        }
         close(OUT);
     }
 

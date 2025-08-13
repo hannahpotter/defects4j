@@ -945,6 +945,72 @@ sub get_failing_tests {
 
 =pod
 
+=item C<Utils::get_total_tests(test_result_file)>
+
+TODO - Only checked for all tests passing and JUnit 3 & 4 for now
+
+=cut
+
+sub get_test_summary {
+    @_ == 1 or die $ARG_ERROR;
+    my ($file_name) = @_;
+
+    open FILE, $file_name or die "Cannot open test result file ($file_name): $!";
+    my @lines = <FILE>;
+    close FILE;
+
+    my $total = 0;
+    my $failures = 0;
+    for (my $i=0; $i <= $#lines; ++$i) {
+        my $line = $lines[$i];
+        local $_ = $line;
+        chomp;
+        /OK \((\d+) tests\)|Tests run: (\d+)/ or next;
+        my $tests;
+        if (defined $1) {
+            $tests = $1;
+        } elsif (defined $2) {
+            $tests = $2;
+        }
+        $total = $total + $tests;
+        $_ = $line;
+        chomp;
+        chomp;
+        /Failures: (\d+)/ or next;
+        $failures = $failures + $1;
+    }
+    return ($total, $failures);
+}
+
+=pod
+
+=item C<Utils::get_total_tests_mvn(test_result_file [, output_file])>
+
+TODO
+
+=cut
+
+sub get_total_tests_mvn {
+    @_ == 1 or die $ARG_ERROR;
+    my ($folder_name) = @_;
+
+    opendir my($dirhandle), $folder_name;
+    my @files = grep { /\.xml$/ } readdir $dirhandle;
+
+    my $total = 0;
+    foreach my $file (@files) {
+        my $dom = XML::LibXML->load_xml(location => "$folder_name/$file") or die("Cannot read the xml file: $file");
+        foreach my $test_suite ($dom->findnodes('//testsuite')) {
+            my $num_tests = scalar($test_suite->getAttribute('tests'));
+            my $skipped = scalar($test_suite->getAttribute('skipped'));
+            $total = $total + ($num_tests - $skipped);
+        }
+    }
+    return $total;
+}
+
+=pod
+
 =item C<Utils::extract_failing_tests_mvn(test_result_file [, output_file])>
 
 Determines all failing test classes and test methods in F<test_result_file>,
@@ -1137,7 +1203,7 @@ sub mvn_extract_test_info {
     # Ensure hamcrest is on the dependency path
     my $hamcrest = "";
     if ($dependency_path !~ /hamcrest/) {
-        $hamcrest = ":".'{TEST_LIB_PATH}'."/junit-4.12.hamcrest-1.3.jar";
+        $hamcrest = ":".'{TEST_LIB_PATH}'."/junit-4.12-hamcrest-1.3.jar";
     }
     my $classpath = "$test_classes_path:$classes_path$dependency_path$hamcrest";
     print $args "-cp $classpath\n";

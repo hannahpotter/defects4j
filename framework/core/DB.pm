@@ -190,9 +190,14 @@ our $ISSUE_TRACKER_ID = "tracker_id";
 # Additional columns of TAB_REV_PAIRS and TAB_NATIVE
 our $COMP_V2       = "compile_v2";
 our $COMP_T2V2     = "compile_t2v2";
-our $FAIL_T2V2     = "num_fail_t2v2";
 our $COMP_V1       = "compile_v1";
 our $COMP_T2V1     = "compile_t2v1";
+
+# Additional columns for TAB_REV_PAIRS
+our $FAIL_T2V2     = "num_fail_t2v2";
+
+# Additional columns for TAB_NATIVE
+our $COMPARE_TEST = "compare_test";
 
 # Additional columns for TAB_POM_FIX
 our $BUNDLE = "bundle"; # org.apache.felix:maven-bundle-plugin version 5.1.9 works with Java 11
@@ -241,7 +246,7 @@ $TAB_BOOTSTRAP => [$PROJECT, $ID, $DIFF_SRC, $DIFF_TEST, $BOOTSTRAPPED],
 # TAB_REV_PAIRS
 $TAB_REV_PAIRS => [$PROJECT, $ID, $ISSUE_TRACKER_NAME, $ISSUE_TRACKER_ID, $COMP_V2, $COMP_T2V2, $FAIL_T2V2, $COMP_V1, $COMP_T2V1],
 # TAB_NATIVE
-$TAB_NATIVE => [$PROJECT, $ID, $ISSUE_TRACKER_NAME, $ISSUE_TRACKER_ID, $COMP_V2, $COMP_T2V2, $FAIL_T2V2, $COMP_V1, $COMP_T2V1],
+$TAB_NATIVE => [$PROJECT, $ID, $ISSUE_TRACKER_NAME, $ISSUE_TRACKER_ID, $COMP_V2, $COMP_T2V2, $COMP_V1, $COMP_T2V1, $COMPARE_TEST],
 # TAB_POM_FIX
 $TAB_POM_FIX => [$PROJECT, $ID, $BUNDLE, $SUREFIRE],
 # Table TAB_TRIGGER
@@ -299,6 +304,7 @@ $COMP_T2V2
 $FAIL_T2V2
 $COMP_V1
 $COMP_T2V1
+$COMPARE_TEST
 $MIN_SRC
 $REVIEW_TESTS
 $BUNDLE

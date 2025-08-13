@@ -193,7 +193,7 @@ foreach my $bid (@bids) {
     $data{$ISSUE_TRACKER_ID} = $TRACKER_ID;
 
     _check_compilation($project, $bid, \%data) and
-    _check_tests($project, $bid, \%data) or next;
+    _check_tests($project, $bid, \%data);
 
     # Add data set to result file
     _add_rows(\%data);
@@ -226,14 +226,21 @@ sub _check_compilation {
     $project->run_mvn_build_classpath("compile", $source_v1_cp);
     $project->construct_javac_args("${bid}b", $source_v1_cp, 1, "$ARGS_FILES/$bid/source_v1_args.txt", "$ARGS_FILES/$bid/source_v1_cmd");
     # Confirm that the args file is correct for compiling v1 source
-    my $ret = $project->compile("$ARGS_FILES/$bid/source_v1_args.txt", $DEPENDENCIES);
+    my $log;
+    my $ret = $project->compile("$ARGS_FILES/$bid/source_v1_args.txt", $DEPENDENCIES, \$log);
+    if (! $ret) {
+        system("echo \"--------------------- Error compiling v1 source ${bid} --------------------- \n${log}\n\n\" >> $LOG");
+    }
     _add_bool_result($data, $COMP_V1, $ret) or return 0;
 
     my $test_cp = "$ANALYZER_OUTPUT/$bid/test_cp";
     $project->run_mvn_build_classpath("test", $test_cp);
     $project->construct_javac_args("${bid}b", $test_cp, 0, "$ARGS_FILES/$bid/test_args.txt", "$ARGS_FILES/$bid/test_args_cmd");
     # Confirm that the args file is correct for compiling v1t2 tests
-    $ret = $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES);
+    $ret = $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES, \$log);
+    if (! $ret) {
+        system("echo \"--------------------- Error compiling v1t2 tests ${bid} --------------------- \n${log}\n\n\" >> $LOG");
+    }
     _add_bool_result($data, $COMP_T2V1, $ret) or return 0;
 
     # Checkout v2
@@ -244,16 +251,22 @@ sub _check_compilation {
     $project->run_mvn_build_classpath("compile", $source_v2_cp);
     $project->construct_javac_args("${bid}f", $source_v2_cp, 1, "$ARGS_FILES/$bid/source_v2_args.txt", "$ARGS_FILES/$bid/source_v2_cmd");
     # Confirm that the args file is correct for compiling v2 source
-    $ret = $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES);
+    $ret = $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES, \$log);
+    if (! $ret) {
+        system("echo \"--------------------- Error compiling v2 source ${bid} --------------------- \n${log}\n\n\" >> $LOG");
+    }
     _add_bool_result($data, $COMP_V2, $ret) or return 0;
 
     # Confirm that the args file is correct for compiling v2t2 tests
-    $ret = $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES);
+    $ret = $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES, \$log);
+    if (! $ret) {
+        system("echo \"--------------------- Error compiling v2t2 tests ${bid} --------------------- \n${log}\n\n\" >> $LOG");
+    }
     _add_bool_result($data, $COMP_T2V2, $ret) or return 0;
 }
 
 #
-# Export failing tests in v2t2 to exclude.
+# Confirm that native test runs match maven test runs.
 #
 # Returns 1 on success, 0 otherwise
 #
@@ -268,15 +281,17 @@ sub _check_tests {
     $project->mvn_test_compile() or die;
 
     # Run tests with Maven and get number of failing tests
-    $project->run_mvn_tests() or die;
+    my $log;
+    $project->run_mvn_tests(\$log) or die;
     my $mvn_failing = Utils::extract_failing_tests_mvn("$project_path/target/surefire-reports");
+    my $num_fail_mvn = scalar(@{$mvn_failing->{"classes"}}) + scalar(@{$mvn_failing->{"methods"}});
+    my $num_total_mvn = Utils::get_total_tests_mvn("$project_path/target/surefire-reports");
 
     # Extract test info from the Maven run
     system("mkdir -p $ARGS_FILES/$bid/test_info");
     Utils::mvn_extract_test_info("$project_path/target/surefire-reports", "$ANALYZER_OUTPUT/$bid/test_cp", 'target/classes', 'target/test-classes', '{TEST_LIB_PATH}', "$ARGS_FILES/$bid/test_info");
     $project->run_mvn_clean();
 
-    # Confirm that the results are the same running natively and via Maven
     open my $version_file, '<', "$ARGS_FILES/$bid/test_info/junit_version.txt";
     my $junit_version = <$version_file>;
     close $version_file;
@@ -286,13 +301,27 @@ sub _check_tests {
     $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES);
     $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES);
     $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, "$ARGS_FILES/$bid/test_info/testsuites.txt", $file);
+    my $native_failing = Utils::get_failing_tests($file);
+    my $num_fail_native = scalar(@{$native_failing->{"classes"}}) + scalar(@{$native_failing->{"methods"}});
+    my ($num_total_native, $num_fail_summary_native) = Utils::get_test_summary($file);
+    if ($num_fail_native != $num_fail_summary_native) {
+        system("echo \"--------------------- Error extracting number of failing tests ${bid} --------------------- \n\" >> $LOG");
+        system("echo \"NATIVE LOG: Total=$num_total_native,Failures=$num_fail_native\n\" >> $LOG");
+        system("cat $file >> $LOG");
+        return 0;
+    }
 
-    system("cat $file");
-
-    # PAUSE PLACE -  need to compare results with Maven to confirm getting the same results
-    # Extract total number of tests from each
-    # Compare failing
-    return 1;
+    # Compare native and mvn test runs - there should be no failing tests and the same number of tests should be run
+    my $check = $num_fail_native == 0 && $num_fail_mvn == 0 && $num_total_native == $num_total_mvn;
+    if (! $check) {
+        system("echo \"--------------------- Error comparing native and mvn test runs ${bid} --------------------- \n\" >> $LOG");
+        system("echo \"MAVEN LOG: Total=$num_total_mvn,Failures=$num_fail_mvn\n\" >> $LOG");
+        system("echo \'$log\' >> $LOG");
+        system("echo \"NATIVE LOG: Total=$num_total_native,Failures=$num_fail_native\n\" >> $LOG");
+        system("cat $file >> $LOG");
+        $check = 0;
+    }
+    _add_bool_result($data, $COMPARE_TEST, $check) or return 0;
 }
 
 
@@ -334,6 +363,7 @@ sub _get_bug_ids {
 
     my $sth_exists = $dbh_native->prepare("SELECT * FROM $TAB_NATIVE WHERE $PROJECT=? AND $ID=?") or die $dbh_native->errstr;
 
+    # TODO only select from previous version where all the compilation is in order
     # Select all version ids from previous step in workflow
     my $sth = $dbh_revs->prepare("SELECT $ID FROM $TAB_REV_PAIRS WHERE $PROJECT=? "
                 . "AND $COMP_T2V1=1") or die $dbh_revs->errstr;
