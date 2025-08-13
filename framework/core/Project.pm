@@ -861,8 +861,8 @@ Format of C<single_test>: <classname>::<methodname>.
 =cut
 
 sub run_tests {
-    @_ >= 2 or die $ARG_ERROR;
-    my ($self, $version, $arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $dependencies, $test_jar, $test_classes, $out_file, $single_test) = @_;
+    @_ >= 10 or die $ARG_ERROR;
+    my ($self, $version, $arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $dependencies, $test_jar, $lib_path, $test_classes, $out_file, $verbose, $single_test) = @_;
 
     if ($version != "3" && $version != "4" && $version != "5") {
         die "Unhandled JUnit version: $version";
@@ -875,6 +875,7 @@ sub run_tests {
     while(<IN>)
     {
         $_ =~ s/{LOCAL_DEPENDENCY_PATH}/$dependencies/g;
+        $_ =~ s/{LIB_PATH}/$lib_path/g;
         $_ =~ s/{TEST_LIB_PATH}/$test_jar/g;
         print OUT $_;
     }
@@ -888,15 +889,17 @@ sub run_tests {
         my $class=$1;
         my $method=$2;
         if ($version == "3" || $version == "4") {
-            # For JUnit 3? and 4 use the SingleTestRunner class
+            # For JUnit 3 and 4 use the SingleTestRunner class
+            $cmd = "edu.washington.cs.mut.testrunner.SingleTestRunner $single_test";
         } elsif ($version == "5") {
-            # For JUnit 5 use java -jar junit-platform-console-standalone-1.9.3.jar execute -cp <classpath-for-the-class-under-test> --select=method:hello.HelloTest#hi
+            # For JUnit 5 use java -jar junit-platform-console-standalone-1.9.3.jar execute --select=method:hello.HelloTest#hi
+            $cmd = "-jar $test_jar/junit-platform-console-standalone-1.9.3.jar execute --select=method:$class#$method";
         } 
     } else {
         my $seperator;
         if ($version == "3" || $version == "4") {
             $seperator = " ";
-            $cmd = "org.junit.runner.JUnitCore"; # Works for version 4 and 3.8.x
+            $cmd = "org.junit.runner.JUnitCore";
         } elsif ($version == "5") {
             $seperator = " --select-class=";
             $cmd = "-jar $test_jar/junit-platform-console-standalone-1.9.3.jar execute"
@@ -934,21 +937,34 @@ sub run_tests {
     system("rm -f $arg_file");
     rename($arg_file . '.bak', $arg_file);
 
-    if (defined $out_file) {
-        # Process the log file to be correct format
-        # The expected format for failing tests in Defects4J is:
-        # --- <class name>[::<method name>]
-        open(OUT, ">>$out_file") or die "Cannot open log file: $out_file!";
-        my @lines = split /\n/, $log;
-        foreach my $line (@lines)
-        {
+    # Process the log file to be correct format
+    # The expected format for failing tests in Defects4J is:
+    # --- <class name>[::<method name>]
+    open(OUT, ">>$out_file") or die "Cannot open log file: $out_file!";
+    my @lines = split /\n/, $log;
+    my $capture = defined $single_test ? 1 : 0;
+    foreach my $line (@lines)
+    {
+        # Only capture the stack traces of errors (not time run, etc.) if not in verbose mode
+        if (defined $verbose && $verbose) {
+            $capture = 1;
+        } elsif (! $capture && $line =~ /There were \d+ failures:|There was 1 failure:/) {
+            $capture = 1;
+            next;
+        } elsif ($capture && $line =~ /FAILURES!!!/) {
+            $capture = 0;
+            next;
+        }
+
+        if ($capture) {
             my $prefix = "--- ";
-            $line =~ s/\d+\) ([^\\[\\(]*)(\\[.*\\])?\((.*)\)\s*/$prefix$3::$1/g;
+            $line =~ s/\d+\) ([^\\[\\(]*)(\\[.*\\])?\((.*)\)\s*/$prefix$3::$1/g; # Format used for JUnitCore
+            $line =~ s/^([^\\[\\(\s]*)(\\[.*\\])?\((.*)\)/$prefix$3::$1/g; # Format used for SingleTestRunner
             #$line =~ s/(.*):(.*)\s*/$1::$2/g; TODO See if this is necessary and other parts from Formatter.java
             print OUT "$line\n";
         }
-        close(OUT);
     }
+    close(OUT);
 
     return $ret;
 }

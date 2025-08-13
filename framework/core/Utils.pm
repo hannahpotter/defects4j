@@ -1100,8 +1100,8 @@ TODO
 =cut
 
 sub mvn_extract_test_info {
-    @_ == 6 or die $ARG_ERROR;
-    my ($test_result_folder, $dependency_file, $classes_path, $test_classes_path, $test_jar, $output_folder) = @_;
+    @_ == 5 or die $ARG_ERROR;
+    my ($test_result_folder, $dependency_file, $classes_path, $test_classes_path, $output_folder) = @_;
 
     ##### Extract the test results
     opendir my($result_dirhandle), $test_result_folder;
@@ -1192,33 +1192,41 @@ sub mvn_extract_test_info {
     close $sysout_tests;
     close $skipped_tests;
 
-    ##### Construct the args file for running JUnit tests natively
+    ##### Extract the JUnit version
     open my $dependency, '<', $dependency_file or die "Can't open $dependency_file file\n";;
     my $dependency_path = <$dependency>;
     $dependency_path = defined $dependency_path ? ":$dependency_path" : "";
     close $dependency;
 
-    open my $args, '>', "$output_folder/args_junit.txt" or die "Can't open junit args file\n";
-    # TODO The separator is different for Windows machines
-    # Ensure hamcrest is on the dependency path
-    my $hamcrest = "";
-    if ($dependency_path !~ /hamcrest/) {
-        $hamcrest = ":".'{TEST_LIB_PATH}'."/junit-4.12-hamcrest-1.3.jar";
-    }
-    my $classpath = "$test_classes_path:$classes_path$dependency_path$hamcrest";
-    print $args "-cp $classpath\n";
-    close $args;
-
-    ##### Extract the JUnit version
     open my $junit, '>', "$output_folder/junit_version.txt" or die "Can't open junit version file\n";
-    if ($dependency_path =~ /junit-[\d*.]+/) {        
-        print $junit substr($&, 6, 1);
+    my $version;
+    if ($dependency_path =~ /junit-(\d+).(\d+).?(\d+)?/) {
+        if ($1 == "3" && ($2 != "8" && $2 != "9")) {
+            die "Unsupported Junit version: $1.$2";
+        }   
+        $version = $1;     
     } elsif ($dependency_path =~ /junit-jupiter/) {
-        print $junit "5";
+        $version = "5";
     } else {
         die "Can't determine JUnit version";
     }
+    print $junit $version;
     close $junit;
+
+    ##### Construct the args file for running JUnit tests natively
+    open my $args, '>', "$output_folder/args_junit.txt" or die "Can't open junit args file\n";
+    # TODO The separator is different for Windows machines
+    # Add the test runner to the path for JUnit 3 & 4 for running single tests
+    my $testrunner = "";
+    if ($version == "3" || $version == "4") {
+        $testrunner = ":".'{LIB_PATH}'."/formatter.jar";
+    }
+    if ($version == "3") {
+        $testrunner = "$testrunner:".'{TEST_LIB_PATH}'."/junit-4.12-hamcrest-1.3.jar";
+    }
+    my $classpath = "$test_classes_path:$classes_path$dependency_path$testrunner";
+    print $args "-cp $classpath\n";
+    close $args;
 }
 
 =pod

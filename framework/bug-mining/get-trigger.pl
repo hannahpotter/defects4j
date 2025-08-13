@@ -100,13 +100,16 @@ use DB;
 use Utils;
 
 my %cmd_opts;
-getopts('p:b:w:', \%cmd_opts) or pod2usage(1);
+getopts('p:b:w:D', \%cmd_opts) or pod2usage(1);
 
 pod2usage(1) unless defined $cmd_opts{p} and defined $cmd_opts{w};
 
 my $PID = $cmd_opts{p};
 my $BID = $cmd_opts{b};
 my $WORK_DIR = abs_path($cmd_opts{w});
+my $TEST_JAR = (dirname(abs_path(__FILE__)) . "/../projects/lib");
+my $LIB_PATH = (dirname(abs_path(__FILE__)) . "/../lib");
+$DEBUG = 1 if defined $cmd_opts{D};
 
 # Check format of target bug id
 if (defined $BID) {
@@ -126,6 +129,9 @@ $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 # Set the projects and repository directories to the current working directory.
 my $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 
+my $DEPENDENCIES = "$PROJECTS_DIR/$PID/lib/dependency";
+my $ARGS_FILES = "$PROJECTS_DIR/$PID/args_files";
+
 # Temporary directory
 my $TMP_DIR = Utils::get_tmp_dir();
 system("mkdir -p $TMP_DIR");
@@ -136,7 +142,7 @@ $project->{prog_root} = $TMP_DIR;
 
 # Get database handle for results
 my $dbh_trigger = DB::get_db_handle($TAB_TRIGGER, $db_dir);
-my $dbh_revs = DB::get_db_handle($TAB_REV_PAIRS, $db_dir);
+my $dbh_native = DB::get_db_handle($TAB_NATIVE, $db_dir);
 my @COLS = DB::get_tab_columns($TAB_TRIGGER) or die;
 
 # Set up directory for triggering tests
@@ -162,8 +168,12 @@ foreach my $bid (@bids) {
     $data{$PROJECT} = $PID;
     $data{$ID} = $bid;
 
+    open my $version_file, '<', "$ARGS_FILES/$bid/test_info/junit_version.txt";
+    my $junit_version = <$version_file>;
+    close $version_file;
+
     # V2 must not have any failing tests
-    my $list = _get_failing_tests($project, "$TMP_DIR/v2", "${bid}f");
+    my $list = _get_failing_tests($project, "$TMP_DIR/v2", $bid, "${bid}f", $junit_version, "$ARGS_FILES/$bid/source_v2_args.txt", "$ARGS_FILES/$bid/source_v2_cmd");
     if (($data{$FAIL_V2} = (scalar(@{$list->{"classes"}}) + scalar(@{$list->{"methods"}}))) != 0) {
         print("Non expected failing test classes/methods on ${PID}-${bid}\n");
         _add_row(\%data);
@@ -171,7 +181,7 @@ foreach my $bid (@bids) {
     }
 
     # V1 must not have failing test classes but at least one failing test method
-    $list = _get_failing_tests($project, "$TMP_DIR/v1", "${bid}b");
+    $list = _get_failing_tests($project, "$TMP_DIR/v1", $bid, "${bid}b", $junit_version, "$ARGS_FILES/$bid/source_v1_args.txt", "$ARGS_FILES/$bid/source_v1_cmd");
     my $fail_c = scalar(@{$list->{"classes"}}); $data{$FAIL_C_V1} = $fail_c;
     my $fail_m = scalar(@{$list->{"methods"}}); $data{$FAIL_M_V1} = $fail_m;
     if ($fail_c !=0 or $fail_m == 0) {
@@ -193,12 +203,13 @@ foreach my $bid (@bids) {
     print "List of test methods: \n" . join ("\n",  @$list) . "\n";
     # Run triggering test(s) in isolation on v2 -> tests should pass. Any test not
     # passing is excluded from further processing.
-    $list = _run_tests_isolation("$TMP_DIR/v2", $list, $EXPECT_PASS);
+    $list = _run_tests_isolation("$TMP_DIR/v2", $list, $EXPECT_PASS, $junit_version, $bid, "$ARGS_FILES/$bid/source_v2_cmd");
     $data{$PASS_ISO_V2} = scalar(@$list);
     print "List of test methods: (passed in isolation on v2)\n" . join ("\n", @$list) . "\n";
+
     # Run triggering test(s) in isolation on v1 -> tests should fail. Any test not
     # failing is excluded from further processing.
-    $list = _run_tests_isolation("$TMP_DIR/v1", $list, $EXPECT_FAIL);
+    $list = _run_tests_isolation("$TMP_DIR/v1", $list, $EXPECT_FAIL, $junit_version, $bid, "$ARGS_FILES/$bid/source_v1_cmd");
     $data{$FAIL_ISO_V1} = scalar(@$list);
     print "List of test methods: (failed in isolation on v1)\n" . join ("\n", @$list) . "\n";
 
@@ -212,9 +223,24 @@ foreach my $bid (@bids) {
     }
 
     # Save dependent tests to $DEP_TEST_FILE
+
+    # Get contents of current dependent tests file
+    my @old_dep_tests;
+
+    if (-e $DEP_TEST_FILE){
+        open my $contents, '<', $DEP_TEST_FILE or die "Cannot open dependent tests file: $!\n";
+        my @old_dep_tests = <$contents>;
+        close $contents;    
+    }
+
     my @dependent_tests = grep { !($_ ~~  @{$list}) } @fail_in_order;
     for my $dependent_test (@dependent_tests) {
-        append_dependent_test_log($DEP_TEST_FILE, $dependent_test);
+        # Add the test unless it is already in the list.
+        unless ($dependent_test ~~ @old_dep_tests) {
+            print " ## Warning: Dependent test ($dependent_test) is being added to list.\n";
+            system("echo '--- $dependent_test' >> $DEP_TEST_FILE");
+            push @old_dep_tests, $dependent_test;
+        }
     }
 
     # Add data
@@ -222,8 +248,8 @@ foreach my $bid (@bids) {
 }
 
 $dbh_trigger->disconnect();
-$dbh_revs->disconnect();
-system("rm -rf $TMP_DIR");
+$dbh_native->disconnect();
+system("rm -rf $TMP_DIR") unless $DEBUG;
 
 #
 # Get bug ids from TAB_REV_PAIRS
@@ -241,9 +267,9 @@ sub _get_bug_ids {
     my $sth_exists = $dbh_trigger->prepare("SELECT * FROM $TAB_TRIGGER WHERE $PROJECT=? AND $ID=?") or die $dbh_trigger->errstr;
 
     # Select all version ids from previous step in workflow
-    my $sth = $dbh_revs->prepare("SELECT $ID FROM $TAB_REV_PAIRS WHERE $PROJECT=? "
-                . "AND $COMP_T2V1=1") or die $dbh_revs->errstr;
-    $sth->execute($PID) or die "Cannot query database: $dbh_revs->errstr";
+    my $sth = $dbh_native->prepare("SELECT $ID FROM $TAB_NATIVE WHERE $PROJECT=? "
+                . "AND $COMPARE_TEST=1") or die $dbh_native->errstr;
+    $sth->execute($PID) or die "Cannot query database: $dbh_native->errstr";
     my @bids = ();
     foreach (@{$sth->fetchall_arrayref}) {
         my $bid = $_->[0];
@@ -266,28 +292,29 @@ sub _get_bug_ids {
 # Get a list of all failing tests
 #
 sub _get_failing_tests {
-    my ($project, $root, $vid) = @_;
+    my ($project, $root, $bid, $vid, $junit_version, $src_args, $src_cmd) = @_;
 
+    # Clean output file
+    system(">$FAILED_TESTS_FILE");
     $project->{prog_root} = $root;
 
     $project->checkout_vid($vid, $root, 1) or die;
 
     # Compile src and test
-    $project->mvn_compile() or die;
-    $project->mvn_test_compile() or die;
+    $project->compile("$src_args", $DEPENDENCIES) or die;
+    $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES) or die;
 
     # Run tests and get number of failing tests
-    # Don't "die" here if there are failing tests
-    $project->run_mvn_tests();
+    $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", "$src_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH, "$ARGS_FILES/$bid/test_info/testsuites.txt", $FAILED_TESTS_FILE);
     # Return failing tests
-    return Utils::get_failing_tests("$root/target/surefire-reports", 1);
+    return Utils::get_failing_tests($FAILED_TESTS_FILE);
 }
 
 #
 # Run tests in isolation and check for pass/fail
 #
 sub _run_tests_isolation {
-    my ($root, $list, $expect_fail) = @_;
+    my ($root, $list, $expect_fail, $junit_version, $bid, $src_cmd) = @_;
 
     # Clean output file
     system(">$FAILED_TESTS_FILE");
@@ -296,16 +323,16 @@ sub _run_tests_isolation {
     my @succeeded_tests = ();
 
     foreach my $test (@$list) {
+        # Clean single test output
         system(">$FAILED_TESTS_FILE_SINGLE");
-        # Run tests and get number of failing tests
-        # Don't "die" here if there are failing tests
-        $project->run_mvn_clean();
-        $project->run_single_mvn_test($test);
-        my $fail = Utils::get_failing_tests("$root/target/surefire-reports", 1, $FAILED_TESTS_FILE_SINGLE);
-        my $num_failed = scalar(@{$fail->{methods}});
+        $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", $src_cmd, "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH, "$ARGS_FILES/$bid/test_info/testsuites.txt", $FAILED_TESTS_FILE_SINGLE, 0, $test);
+        my $fail = Utils::get_failing_tests($FAILED_TESTS_FILE_SINGLE);
         if (scalar(@{$fail->{methods}}) == $expect_fail) {
             push @succeeded_tests, $test;
-            Utils::append_failing_test_log($FAILED_TESTS_FILE, $FAILED_TESTS_FILE_SINGLE); # save results of single test to overall file.
+            # TODO PAUSE PLACE What is output running a single test is not as informative
+            # as the stack traces from running all of the tests - get more informative 
+            # output and clean up unnecessary output
+            system("cat $FAILED_TESTS_FILE_SINGLE >> $FAILED_TESTS_FILE"); # save results of single test to overall file.
         }
     }
 

@@ -123,6 +123,7 @@ my $PID = $cmd_opts{p};
 my $BID = $cmd_opts{b};
 my $WORK_DIR = abs_path($cmd_opts{w});
 my $TEST_JAR = (dirname(abs_path(__FILE__)) . "/../projects/lib");
+my $LIB_PATH = (dirname(abs_path(__FILE__)) . "/../lib");
 my $TRACKER_ID = $cmd_opts{t};
 my $TRACKER_NAME = $cmd_opts{g};
 $DEBUG = 1 if defined $cmd_opts{D};
@@ -290,7 +291,7 @@ sub _check_tests {
 
     # Extract test info from the Maven run
     system("mkdir -p $ARGS_FILES/$bid/test_info");
-    Utils::mvn_extract_test_info("$project_path/target/surefire-reports", "$ANALYZER_OUTPUT/$bid/test_cp", 'target/classes', 'target/test-classes', '{TEST_LIB_PATH}', "$ARGS_FILES/$bid/test_info");
+    Utils::mvn_extract_test_info("$project_path/target/surefire-reports", "$ANALYZER_OUTPUT/$bid/test_cp", 'target/classes', 'target/test-classes', "$ARGS_FILES/$bid/test_info");
     $project->run_mvn_clean();
 
     open my $version_file, '<', "$ARGS_FILES/$bid/test_info/junit_version.txt";
@@ -301,7 +302,7 @@ sub _check_tests {
     my $file = "$TMP_DIR/test.output"; `>$file`;
     $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES);
     $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES);
-    $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/source_v2_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, "$ARGS_FILES/$bid/test_info/testsuites.txt", $file);
+    $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/source_v2_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH, "$ARGS_FILES/$bid/test_info/testsuites.txt", $file, 1);
     my $native_failing = Utils::get_failing_tests($file);
     my $num_fail_native = scalar(@{$native_failing->{"classes"}}) + scalar(@{$native_failing->{"methods"}});
     my ($num_total_native, $num_fail_summary_native) = Utils::get_test_summary($file);
