@@ -942,13 +942,13 @@ sub run_tests {
     # --- <class name>[::<method name>]
     open(OUT, ">>$out_file") or die "Cannot open log file: $out_file!";
     my @lines = split /\n/, $log;
-    my $capture = defined $single_test ? 1 : 0;
+    my $capture = 0;
     foreach my $line (@lines)
     {
         # Only capture the stack traces of errors (not time run, etc.) if not in verbose mode
         if (defined $verbose && $verbose) {
             $capture = 1;
-        } elsif (! $capture && $line =~ /There were \d+ failures:|There was 1 failure:/) {
+        } elsif (! $capture && $line =~ /There were \d+ failures:|There was 1 failure:|Test failed!/) {
             $capture = 1;
             next;
         } elsif ($capture && $line =~ /FAILURES!!!/) {
@@ -959,7 +959,7 @@ sub run_tests {
         if ($capture) {
             my $prefix = "--- ";
             $line =~ s/\d+\) ([^\\[\\(]*)(\\[.*\\])?\((.*)\)\s*/$prefix$3::$1/g; # Format used for JUnitCore
-            $line =~ s/^([^\\[\\(\s]*)(\\[.*\\])?\((.*)\)/$prefix$3::$1/g; # Format used for SingleTestRunner
+            $line =~ s/^([^\\[\\(\s]*)(\\[.*\\])?\((.*)\):.*$/$prefix$3::$1/g; # Format used for SingleTestRunner
             #$line =~ s/(.*):(.*)\s*/$1::$2/g; TODO See if this is necessary and other parts from Formatter.java
             print OUT "$line\n";
         }

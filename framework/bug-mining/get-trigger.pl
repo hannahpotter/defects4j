@@ -329,9 +329,6 @@ sub _run_tests_isolation {
         my $fail = Utils::get_failing_tests($FAILED_TESTS_FILE_SINGLE);
         if (scalar(@{$fail->{methods}}) == $expect_fail) {
             push @succeeded_tests, $test;
-            # TODO PAUSE PLACE What is output running a single test is not as informative
-            # as the stack traces from running all of the tests - get more informative 
-            # output and clean up unnecessary output
             system("cat $FAILED_TESTS_FILE_SINGLE >> $FAILED_TESTS_FILE"); # save results of single test to overall file.
         }
     }

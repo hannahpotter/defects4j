@@ -61,6 +61,9 @@ public class SingleTestRunner {
             System.err.println("Test failed!");
             for (Failure f: res.getFailures()) {
                 System.err.println(f.toString());
+                if (f.getException() != null) {
+                    f.getException().printStackTrace(System.err);
+                }
             }
             System.exit(2);
         }
