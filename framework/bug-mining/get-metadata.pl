@@ -92,9 +92,6 @@ This script writes the loaded classes, modified classes, and relevant tests to:
 
 =back
 
-# PAUSE PLACE Update this file to run with maven 
-# Add to promote-to-db all of the extraction to run natively stuff
-
 =cut
 use warnings;
 use strict;
@@ -117,6 +114,8 @@ pod2usage(1) unless defined $cmd_opts{p} and defined $cmd_opts{w};
 my $PID = $cmd_opts{p};
 my $BID = $cmd_opts{b};
 my $WORK_DIR = abs_path($cmd_opts{w});
+my $TEST_JAR = (dirname(abs_path(__FILE__)) . "/../projects/lib");
+my $LIB_PATH = (dirname(abs_path(__FILE__)) . "/../lib");
 
 # Check format of target bug id
 if (defined $BID) {
@@ -138,6 +137,9 @@ my $MODIFIED = "$PROJECT_DIR/modified_classes";
 # Directories containing triggering tests and relevant tests
 my $TRIGGER = "$PROJECT_DIR/trigger_tests";
 my $RELEVANT= "$PROJECT_DIR/relevant_tests";
+
+my $DEPENDENCIES = "$PROJECT_DIR/lib/dependency";
+my $ARGS_FILES = "$PROJECT_DIR/args_files";
 
 # DB_CSVs directory
 my $db_dir = $WORK_DIR;
@@ -164,7 +166,7 @@ foreach my $bid (@bids) {
     my $file = "$TRIGGER/$bid";
     -e $file or die "Triggering test does not exist: $file!";
 
-    my @list = @{Utils::get_failing_tests($file, 0)->{methods}};
+    my @list = @{Utils::get_failing_tests($file)->{methods}};
     # There has to be a triggering test
     scalar(@list) > 0 or die "No triggering test: $v2";
 
@@ -174,8 +176,12 @@ foreach my $bid (@bids) {
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) or die;
 
     # Compile sources and tests
-    $project->mvn_compile() or die;
-    $project->mvn_test_compile() or die;
+    $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES) or die;
+    $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES) or die;
+
+    open my $version_file, '<', "$ARGS_FILES/$bid/test_info/junit_version.txt";
+    my $junit_version = <$version_file>;
+    close $version_file;
 
     my %src;
     my %test;
@@ -183,14 +189,14 @@ foreach my $bid (@bids) {
         my $log_file = "$TMP_DIR/tests.fail";
 
         # Run triggering test and verify that it passes
-        $project->run_single_mvn_test($test) or die;
+        $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/source_v2_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH, "$ARGS_FILES/$bid/test_info/testsuites.txt", $log_file, 0, $test);
 
         # Get number of failing tests -> has to be 0
-        my $fail = Utils::get_failing_tests("$TMP_DIR/target/surefire-reports", 1);
+        my $fail = Utils::get_failing_tests($log_file);
         (scalar(@{$fail->{classes}}) + scalar(@{$fail->{methods}})) == 0 or die "Unexpected failing test on fixed project version (see $TMP_DIR/target/surefire-reports)!";
 
         # Run tests again and monitor class loader
-        my $loaded = $project->monitor_test($test, "${bid}f");
+        my $loaded = $project->monitor_test($test, "${bid}f", "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/source_v2_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH);
         die unless defined $loaded;
 
         foreach (@{$loaded->{src}}) {
@@ -301,11 +307,14 @@ sub _export_relevant_tests {
     my @relevant = ();
 
     # Iterate over all tests and determine whether or not a test is relevant
-    my @all_tests = `cd $TMP_DIR && $SCRIPT_DIR/bin/defects4j export -ptests.all`;
+    my $test_file = "$ARGS_FILES/$bid/test_info/testsuites.txt";
+    open my $fh, '<', $test_file  or die "Cannot open file $test_file!";
+    my @all_tests = <$fh>;
+    close $fh;
     foreach my $test (@all_tests) {
         chomp($test);
         print(STDERR "Analyze test: $test\n");
-        my $loaded = $project->monitor_test($test, "${bid}f");
+        my $loaded = $project->monitor_test($test, "${bid}f", "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/source_v2_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH);
         die("Failed test: $test\n") unless (defined $loaded);
 
         foreach my $class (@{$loaded->{src}}) {

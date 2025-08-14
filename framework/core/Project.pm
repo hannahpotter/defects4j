@@ -851,6 +851,94 @@ sub run_single_mvn_test {
 
 =pod
 
+  $project->_pre_run_tests(result_file [, single_test])
+
+TODO
+
+=cut
+
+sub _pre_run_tests {
+    @_ == 7 or die $ARG_ERROR;
+    my ($self, $arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $dependencies, $test_jar, $lib_path) = @_;
+
+    # Set the arg file dependencies
+    rename($arg_file, $arg_file . '.bak');
+    open(IN, '<' . $arg_file . '.bak') or die $!;
+    open(OUT, '>' . $arg_file) or die $!;
+    while(<IN>)
+    {
+        $_ =~ s/{LOCAL_DEPENDENCY_PATH}/$dependencies/g;
+        $_ =~ s/{LIB_PATH}/$lib_path/g;
+        $_ =~ s/{TEST_LIB_PATH}/$test_jar/g;
+        print OUT $_;
+    }
+    close(IN);
+    close(OUT);
+
+    if (defined $preprocess_src_cmd && -e $preprocess_src_cmd) {
+        open my $preprocess_src_file, '<', "$preprocess_src_cmd";
+        my $pre_src_cmd = <$preprocess_src_file>;
+        close $preprocess_src_file;
+        Utils::exec_cmd("cd $self->{prog_root} && $pre_src_cmd", "Running setup for junit tests");
+    }
+    if (defined $preprocess_test_cmd && -e $preprocess_test_cmd) {
+        open my $preprocess_test_file, '<', "$preprocess_test_cmd";
+        my $pre_test_cmd = <$preprocess_test_file>;
+        close $preprocess_test_file;
+        Utils::exec_cmd("cd $self->{prog_root} && $pre_test_cmd", "Running setup for junit tests");
+    }
+}
+
+=pod
+
+  $project->_post_run_tests(result_file [, single_test])
+
+TODO
+
+=cut
+
+sub _post_run_tests {
+    @_ == 6 or die $ARG_ERROR;
+    my ($self, $arg_file, $log, $format, $verbose, $out_file) = @_;
+
+    # Reset the arg file dependencies
+    system("rm -f $arg_file");
+    rename($arg_file . '.bak', $arg_file);
+
+    # Process the log file to be correct format
+    # The expected format for failing tests in Defects4J is:
+    # --- <class name>[::<method name>]
+    open(OUT, ">>$out_file") or die "Cannot open log file: $out_file!";
+    my @lines = split /\n/, $log;
+    my $capture = 0;
+    foreach my $line (@lines)
+    {
+        # Only capture the stack traces of errors (not time run, etc.) if not in verbose mode
+        if (defined $verbose && $verbose) {
+            $capture = 1;
+        } elsif (! $capture && $line =~ /There were \d+ failures:|There was 1 failure:|Test failed!/) {
+            $capture = 1;
+            next;
+        } elsif ($capture && $line =~ /FAILURES!!!/) {
+            $capture = 0;
+            next;
+        }
+
+        if ($capture && $format) {
+            my $prefix = "--- ";
+            $line =~ s/\d+\) ([^\\[\\(]*)(\\[.*\\])?\((.*)\)\s*/$prefix$3::$1/g; # Format used for JUnitCore
+            $line =~ s/^([^\\[\\(\s]*)(\\[.*\\])?\((.*)\):.*$/$prefix$3::$1/g; # Format used for SingleTestRunner
+            #$line =~ s/(.*):(.*)\s*/$1::$2/g; TODO See if this is necessary and other parts from Formatter.java
+            print OUT "$line\n";
+        } elsif ($capture && !$format) {
+            print OUT "$line\n";
+        }
+    }
+    close(OUT);
+}
+
+=pod
+
   $project->run_tests(result_file [, single_test])
 
 Executes all developer-written tests in the checked-out program version. Failing tests are
@@ -868,22 +956,10 @@ sub run_tests {
         die "Unhandled JUnit version: $version";
     }
 
-    # Set the arg file dependencies
-    rename($arg_file, $arg_file . '.bak');
-    open(IN, '<' . $arg_file . '.bak') or die $!;
-    open(OUT, '>' . $arg_file) or die $!;
-    while(<IN>)
-    {
-        $_ =~ s/{LOCAL_DEPENDENCY_PATH}/$dependencies/g;
-        $_ =~ s/{LIB_PATH}/$lib_path/g;
-        $_ =~ s/{TEST_LIB_PATH}/$test_jar/g;
-        print OUT $_;
-    }
-    close(IN);
-    close(OUT);
+    $self->_pre_run_tests($arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $dependencies, $test_jar, $lib_path);
 
     my $cmd;
-    # TODO Test defining a single test case
+    # TODO Test defining a single test case for JUnit version 5
     if (defined $single_test) {
         $single_test =~ /([^:]+)::([^:]+)/ or die "Wrong format for single test!";
         my $class=$1;
@@ -912,19 +988,6 @@ sub run_tests {
         }
     }
 
-    if (defined $preprocess_src_cmd && -e $preprocess_src_cmd) {
-        open my $preprocess_src_file, '<', "$preprocess_src_cmd";
-        my $pre_src_cmd = <$preprocess_src_file>;
-        close $preprocess_src_file;
-        Utils::exec_cmd("cd $self->{prog_root} && $pre_src_cmd", "Running setup for junit tests");
-    }
-    if (defined $preprocess_test_cmd && -e $preprocess_test_cmd) {
-        open my $preprocess_test_file, '<', "$preprocess_test_cmd";
-        my $pre_test_cmd = <$preprocess_test_file>;
-        close $preprocess_test_file;
-        Utils::exec_cmd("cd $self->{prog_root} && $pre_test_cmd", "Running setup for junit tests");
-    }
-
     $cmd = " cd $self->{prog_root}" .
               " && java" .
              " @"."$arg_file" .
@@ -933,38 +996,7 @@ sub run_tests {
     my $log;
     my $ret = Utils::exec_cmd($cmd, "Running junit tests", \$log);
 
-    # Reset the arg file dependencies
-    system("rm -f $arg_file");
-    rename($arg_file . '.bak', $arg_file);
-
-    # Process the log file to be correct format
-    # The expected format for failing tests in Defects4J is:
-    # --- <class name>[::<method name>]
-    open(OUT, ">>$out_file") or die "Cannot open log file: $out_file!";
-    my @lines = split /\n/, $log;
-    my $capture = 0;
-    foreach my $line (@lines)
-    {
-        # Only capture the stack traces of errors (not time run, etc.) if not in verbose mode
-        if (defined $verbose && $verbose) {
-            $capture = 1;
-        } elsif (! $capture && $line =~ /There were \d+ failures:|There was 1 failure:|Test failed!/) {
-            $capture = 1;
-            next;
-        } elsif ($capture && $line =~ /FAILURES!!!/) {
-            $capture = 0;
-            next;
-        }
-
-        if ($capture) {
-            my $prefix = "--- ";
-            $line =~ s/\d+\) ([^\\[\\(]*)(\\[.*\\])?\((.*)\)\s*/$prefix$3::$1/g; # Format used for JUnitCore
-            $line =~ s/^([^\\[\\(\s]*)(\\[.*\\])?\((.*)\):.*$/$prefix$3::$1/g; # Format used for SingleTestRunner
-            #$line =~ s/(.*):(.*)\s*/$1::$2/g; TODO See if this is necessary and other parts from Formatter.java
-            print OUT "$line\n";
-        }
-    }
-    close(OUT);
+    $self->_post_run_tests($arg_file, $log, 1, $verbose, $out_file);
 
     return $ret;
 }
@@ -1106,10 +1138,10 @@ The default is the test directory of the developer-written tests.
 =cut
 
 sub monitor_test {
-    @_ >= 3 or die $ARG_ERROR;
-    my ($self, $single_test, $vid, $test_dir) = @_;
+    @_ >= 9 or die $ARG_ERROR;
+    my ($self, $single_test, $vid, $arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $dependencies, $test_jar, $lib_path, $test_dir) = @_;
     Utils::check_vid($vid);
-    $single_test =~ /^([^:]+)(#([^:]+))?$/ or die "Wrong format for single test!";
+    $single_test =~ /^([^:]+)(::([^:]+))?$/ or die "Wrong format for single test!";
     $test_dir = $test_dir // "$self->{prog_root}/" . $self->test_dir($vid);
 
     my $log_file = "$self->{prog_root}/classes.log";
@@ -1119,7 +1151,17 @@ sub monitor_test {
         test => []
     };
 
-    if (! $self->_ant_call_comp("monitor.test", "-Dtest.entry=$single_test -Dtest.output=$log_file")) {
+    $self->_pre_run_tests($arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $dependencies, $test_jar, $lib_path);
+    my $cmd = " cd $self->{prog_root}" .
+              " && java" .
+              " -verbose:class ".
+              " @"."$arg_file" .
+              " edu.washington.cs.mut.testrunner.SingleTestRunner $single_test" .
+              " 2>&1";
+    my $log;
+    my $ret = Utils::exec_cmd($cmd, "Logging loaded classes to $log_file", \$log);
+    $self->_post_run_tests($arg_file, $log, 0, 1, $log_file);
+    if (! $ret) {
         return undef;
     }
 
