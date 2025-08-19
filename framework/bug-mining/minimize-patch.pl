@@ -86,6 +86,8 @@ my $EDITOR = $ENV{"D4J_EDITOR"} // "meld";
 my $PID = $cmd_opts{p};
 my $BID = $cmd_opts{b};
 my $WORK_DIR = abs_path($cmd_opts{w});
+my $TEST_JAR = (dirname(abs_path(__FILE__)) . "/../projects/lib");
+my $LIB_PATH = (dirname(abs_path(__FILE__)) . "/../lib");
 
 # Check format of target version id
 $BID =~ /^(\d+)$/ or die "Wrong version id format: $BID -- expected: (\\d+)!";
@@ -101,6 +103,9 @@ $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 my $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 my $PROJECTS_REPOS_DIR = "$WORK_DIR/project_repos";
 
+my $DEPENDENCIES = "$PROJECTS_DIR/$PID/lib/dependency";
+my $ARGS_FILES = "$PROJECTS_DIR/$PID/args_files";
+
 # Patch
 my $PATCH_DIR = "$PROJECTS_DIR/$PID/patches";
 -d $PATCH_DIR or die "Cannot read patch directory: $PATCH_DIR";
@@ -112,6 +117,12 @@ my $TRIGGER_TESTS_DIR = "$PROJECTS_DIR/$PID/trigger_tests";
 -e $TRIGGER_TESTS_DIR or die "Cannot read trigger_tests directory: $TRIGGER_TESTS_DIR";
 my $trigger_tests = "$TRIGGER_TESTS_DIR/${BID}";
 -s "$trigger_tests" or die "Cannot read triggering tests file or the file is empty: $trigger_tests";
+
+# Relevant test classess
+my $RELEVANT_TESTS_DIR = "$PROJECTS_DIR/$PID/relevant_tests";
+-e $RELEVANT_TESTS_DIR or die "Cannot read relevant_tests directory: $RELEVANT_TESTS_DIR";
+my $relevant_tests = "$RELEVANT_TESTS_DIR/${BID}";
+-s "$relevant_tests" or die "Cannot read relevant tests file or the file is empty: $relevant_tests";
 
 my $TMP_DIR = Utils::get_tmp_dir();
 system("mkdir -p $TMP_DIR");
@@ -155,23 +166,32 @@ while (1) {
     last unless lc $input eq "y";
 
     # Does it still compile?
+    my $log;
     my $compile_log_file = "$TMP_DIR/compile-log.txt";
     system(">$compile_log_file");
-    unless ($project->compile($compile_log_file)) {
+    my $ret = $project->compile("$ARGS_FILES/$BID/source_v2_args.txt", $DEPENDENCIES, \$log);
+    system("echo '$log' > $compile_log_file");
+    unless ($ret) {
         system("cat $compile_log_file");
         next;
     }
     my $compile_tests_log_file = "$TMP_DIR/compile_tests-log.txt";
     system(">$compile_tests_log_file");
-    unless ($project->compile_tests($compile_tests_log_file)) {
+    $ret = $project->compile("$ARGS_FILES/$BID/test_args.txt", $DEPENDENCIES, \$log);
+    system("echo '$log' > $compile_tests_log_file");
+    unless ($ret) {
         system("cat $compile_tests_log_file");
         next;
     }
 
+    open my $version_file, '<', "$ARGS_FILES/$BID/test_info/junit_version.txt";
+    my $junit_version = <$version_file>;
+    close $version_file;
     # Is the list of triggering test still the same?
     my $local_trigger_tests = "$TMP_DIR/trigger_tests";
     system(">$local_trigger_tests");
-    $project->run_relevant_tests($local_trigger_tests);
+    # Run the relevant tests
+    $project->run_tests($junit_version, "$ARGS_FILES/$BID/test_info/args_junit.txt", "$ARGS_FILES/$BID/source_v2_cmd", "$ARGS_FILES/${BID}/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH, $relevant_tests, $local_trigger_tests);
 
     system("grep \"^--- \" $trigger_tests | sort > $local_trigger_tests.sorted.original");
     system("grep \"^--- \" $local_trigger_tests | sort > $local_trigger_tests.sorted.minimal");
@@ -186,8 +206,8 @@ while (1) {
     system(">$local_trigger_tests-reason.original");
     system(">$local_trigger_tests-reason.minimal");
     system("cat \"$local_trigger_tests.sorted.original\" | while read -r trigger_test_case; do " .
-                "grep -A10 --no-group-separator \"^\$trigger_test_case\$\" $trigger_tests | grep -v \"	at \" >> $local_trigger_tests-reason.original; " .
-                "grep -A10 --no-group-separator \"^\$trigger_test_case\$\" $local_trigger_tests | grep -v \"	at \" >> $local_trigger_tests-reason.minimal; " .
+                "awk \"/^\$trigger_test_case\$/{flag=1}/	at /{flag=0} flag\" $trigger_tests >> $local_trigger_tests-reason.original; " .
+                "awk \"/^\$trigger_test_case\$/{flag=1}/	at /{flag=0} flag\" $local_trigger_tests >> $local_trigger_tests-reason.minimal; " .
            "done");
 
     if (compare("$local_trigger_tests-reason.original", "$local_trigger_tests-reason.minimal") == 1) {
