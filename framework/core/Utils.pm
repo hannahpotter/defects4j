@@ -360,12 +360,12 @@ sub is_continuous_integration {
 
 =pod
 
-=item C<Utils::fix_dependency_urls(build_file, pattern_file, multi_line)>
+=item C<Utils::fix_dependencies(build_file, pattern_file, multi_line)>
 
 Parses the F<build_file> and applies the first matching pattern in the F<pattern_file>.
 
 =cut
-sub fix_dependency_urls {
+sub fix_dependencies {
     @_ == 3 || die $ARG_ERROR;
     my ($build_file, $pattern_file, $multi_line) = @_;
 

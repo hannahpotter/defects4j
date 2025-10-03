@@ -501,8 +501,8 @@ sub checkout_vid {
     # Fix dependency URLs if necessary (we only fix this on the fixed version
     # since the buggy version is derived by applying a source-code patch).
     for my $build_file (("build.xml", "maven-build.xml", "pom.xml", "project.xml", "project.properties", "default.properties", "maven-build.properties")) {
-        Utils::fix_dependency_urls("$work_dir/$build_file", "$UTIL_DIR/fix_dependency_urls.patterns", 0) if -e "$work_dir/$build_file";
-        Utils::fix_dependency_urls("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_urls.patterns", 1) if -e "$work_dir/pom.xml";
+        Utils::fix_dependencies("$work_dir/$build_file", "$UTIL_DIR/fix_dependency_urls.patterns", 0) if -e "$work_dir/$build_file";
+        Utils::fix_dependencies("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_declarations.patterns", 1) if -e "$work_dir/pom.xml";
     }
     my $conditional_fixes = $self->get_conditional_pom_fixes($bid);
     Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns", $conditional_fixes) if -e "$work_dir/pom.xml";

@@ -26,12 +26,12 @@
 
 =head1 NAME
 
-fix_dependency_urls.pl -- replace broken dependency URLs in a build file, based
+fix_dependencies.pl -- replace broken dependency URLs in a build file, based
                           on a set of patterns.
 
 =head1 SYNOPSIS
 
-    fix_dependency_urls.pl -f build_file [-p pattern_file] [-M]
+    fix_dependencies.pl -f build_file [-p pattern_file] [-M]
 
 =head1 OPTIONS
 
@@ -91,4 +91,4 @@ my $BUILD_FILE = $cmd_opts{f};
 my $PATTERNS   = $cmd_opts{p} // "$UTIL_DIR/fix_dependency_urls.patterns";
 my $MULTI_LINE = $cmd_opts{M};
 
-Utils::fix_dependency_urls($BUILD_FILE, $PATTERNS, defined($MULTI_LINE) ? 1 : 0);
+Utils::fix_dependencies($BUILD_FILE, $PATTERNS, defined($MULTI_LINE) ? 1 : 0);

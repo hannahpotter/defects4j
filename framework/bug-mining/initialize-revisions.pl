@@ -27,7 +27,8 @@
 =head1 NAME
 
 initialize-revisions.pl -- Initialize all revisions: identify the directory
-layout and perform a sanity check for each revision.
+layout, check that dependencies can be resolved, and download local copies
+of dependencies for each revision.
 
 =head1 SYNOPSIS
 
@@ -151,29 +152,31 @@ sub _init_version {
 
     $project->initialize_revision($rev_id, "${vid}");
 
-    return ($rev_id, $work_dir, $project->src_dir("${vid}"), $project->test_dir("${vid}"));
+    return ($rev_id, $project->src_dir("${vid}"), $project->test_dir("${vid}"));
 }
 
 #
 # Init routine for Maven builds.
 #
 sub _init_maven {
-    my ($project, $work_dir, $bid, $rev_id) = @_;
+    my ($project, $bid, $rev_id) = @_;
+    my $work_dir = $project->{prog_root};
 
     if (! -e "$work_dir/pom.xml") {         
-        system("echo \"--------------------- Error with revision ${rev_id} --------------------- \nNo pom file\n\n\" >> $LOG");
+        system("echo \"--------------------- Error for bid ${bid} with revision ${rev_id} --------------------- \nNo pom file\n\n\" >> $LOG");
         return 0; 
     }
 
     # Update the pom.xml to update pom elements.
-    Utils::fix_dependency_urls("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_urls.patterns", 1) if -e "$work_dir/pom.xml";
-    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns", {}) if -e "$work_dir/pom.xml";
+    Utils::fix_dependencies("$work_dir/pom.xml", "$UTIL_DIR/fix_dependency_urls.patterns", 0);
+    Utils::fix_dependencies("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_declarations.patterns", 1);
+    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns", {});
 
     # Check for dependencies that can't be resolved
     my $check_dep = "cd $work_dir && mvn dependency:resolve";
     my $log;
     if (! Utils::exec_cmd($check_dep, "Checking dependencies for pom.xml.", \$log)) {
-        system("echo \"--------------------- Error with revision ${rev_id} --------------------- \nError with dependencies\n${log}\n\n\" >> $LOG");
+        system("echo \"--------------------- Error for bid ${bid} with revision ${rev_id} --------------------- \nError with dependencies\n${log}\n\n\" >> $LOG");
         return 0;
     }
 
@@ -235,8 +238,8 @@ sub _check_diff {
 sub _bootstrap {
     my ($data, $project, $bid) = @_;
 
-    my ($v1, $work_dir_b, $src_b, $test_b) = _init_version($project, $bid, "${bid}b");
-    my ($v2, $work_dir_f, $src_f, $test_f) = _init_version($project, $bid, "${bid}f");
+    my ($v1, $src_b, $test_b) = _init_version($project, $bid, "${bid}b");
+    my ($v2, $src_f, $test_f) = _init_version($project, $bid, "${bid}f");
     if ($v1 eq "" || $v2 eq "") {
         return 0;
     }
@@ -256,7 +259,7 @@ sub _bootstrap {
         return 0;
     }
 
-    my $maven_success = _init_maven($project, $work_dir_b, $bid, $v1) && _init_maven($project, $work_dir_f, $bid, $v2);
+    my $maven_success = _init_maven($project, $bid, $v1) && _init_maven($project, $bid, $v2);
     if (! $maven_success) {
         printf("      -> Skipping - error with bug\n");
     }

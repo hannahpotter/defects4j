@@ -123,33 +123,26 @@ This script performs 3 tasks:
 ## Analyzing the pre-fix and post-fix revisions of the candidate bugs
 
 1. Initialize all project revisions with `initialize-revisions.pl`. This script
-   will identify the various directory layouts and run a sanity check on each
-   candidate revision in `active-bugs.csv`:
+   will identify the various directory layouts, check that dependencies can be 
+   resolved, and download local copies of dependencies on each candidate revision 
+   in `active-bugs.csv`:
 
 ```bash
 ./initialize-revisions.pl -p $PROJECT_ID -w $WORK_DIR
 ```
 
-If the project under mining uses either [Apache Ant](https://ant.apache.org/) or
+If the project under mining uses
 [Apache Maven](https://maven.apache.org/) as its build system this script should
-run with no problems. However, if the project you are mining require additional
+run with no problems. However, if the project you are mining requires additional
 dependencies or different classpaths to compile/run than ones pre-defined then,
-the Perl module (`$WORK_DIR/framework/core/Project/$PROJECT_ID.pm`) and/or the
-wrapper build file
-(`$WORK_DIR/framework/projects/$PROJECT_ID/$PROJECT_ID.build.xml`)
+the Perl module (`$WORK_DIR/framework/core/Project/$PROJECT_ID.pm`)
 might need to be manually adapted.
 
-`initialize-revisions.pl` script uses a utility java program called
-[build-file analyzer](https://github.com/jose/build-analyzer) to identify
-the list of developer included & excluded test sets and properties of the
-project, such as, the compilation targets, the source and test directory, and
-the source and test classes directory. The metadata extracted by the
-`build-file analyzer` is written to
-(`$WORK_DIR/framework/projects/$PROJECT_ID/analyzer_output/<bug_id>`). This
-metadata might be useful to updated the Perl module
-`$WORK_DIR/framework/core/Project/$PROJECT_ID.pm` and/or the wrapper build file
-`$WORK_DIR/framework/projects/$PROJECT_ID/$PROJECT_ID.build.xml` if the build of
-a revision fails.
+If the build of a revision fails, the `initialize_revisions_error_log.txt` file under
+`$WORK_DIR/framework/projects/$PROJECT_ID` will provide logging information for the issue.
+If there is an issue with a dependency url, edit `fix_dependency_urls.patterns`.
+If there is an issue with a broekn dependency declaration in the pom file, edit `fix_pom_dependency_declarations.patterns1`.
+Once a fix has been made, remove the related bug entry from `bootstrap` and rerun `initialize_revision.pl`.
 
 2. Analyze all revisions with `analyze-project.pl`. This script will identify
    suitable candidate bugs -- ones that compile and have a non-empty source
