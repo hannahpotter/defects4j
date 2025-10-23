@@ -505,7 +505,7 @@ sub checkout_vid {
         Utils::fix_dependencies("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_declarations.patterns", 1) if -e "$work_dir/pom.xml";
     }
     my $conditional_fixes = $self->get_conditional_pom_fixes($bid);
-    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns", $conditional_fixes) if -e "$work_dir/pom.xml";
+    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_properties.patterns", "$UTIL_DIR/fix_pom_config.patterns", $conditional_fixes) if -e "$work_dir/pom.xml";
 
     # Commit and tag the fixed program version
     $tag_name = Utils::tag_prefix($pid, $bid) . $TAG_FIXED;

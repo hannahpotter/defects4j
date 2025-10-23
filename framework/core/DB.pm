@@ -200,8 +200,9 @@ our $FAIL_T2V2     = "num_fail_t2v2";
 our $COMPARE_TEST = "compare_test";
 
 # Additional columns for TAB_POM_FIX
-our $BUNDLE = "bundle"; # org.apache.felix:maven-bundle-plugin version 5.1.9 works with Java 11
-our $SUREFIRE = "surefire"; # org.apache.maven.plugins:maven-surefire-plugin version 2.20.1 doesn't work with Java11 (2.21.0 does)
+our $BUNDLE = "bundle";
+our $SUREFIRE = "surefire";
+our $POWERMOCK = "powermock";
 
 # Additional columns of TAB_TRIGGER
 our $FAIL_V2       = "num_fail_t2v2";
@@ -248,7 +249,7 @@ $TAB_REV_PAIRS => [$PROJECT, $ID, $ISSUE_TRACKER_NAME, $ISSUE_TRACKER_ID, $COMP_
 # TAB_NATIVE
 $TAB_NATIVE => [$PROJECT, $ID, $ISSUE_TRACKER_NAME, $ISSUE_TRACKER_ID, $COMP_V2, $COMP_T2V2, $COMP_V1, $COMP_T2V1, $COMPARE_TEST],
 # TAB_POM_FIX
-$TAB_POM_FIX => [$PROJECT, $ID, $BUNDLE, $SUREFIRE],
+$TAB_POM_FIX => [$PROJECT, $ID, $BUNDLE, $SUREFIRE, $POWERMOCK],
 # Table TAB_TRIGGER
 $TAB_TRIGGER => [$PROJECT, $ID, $FAIL_V2, $FAIL_C_V1, $FAIL_M_V1, $PASS_ISO_V2, $FAIL_ISO_V1],
 # Table TAB_BUG_DETECTION
@@ -309,6 +310,7 @@ $MIN_SRC
 $REVIEW_TESTS
 $BUNDLE
 $SUREFIRE
+$POWERMOCK
 $FAIL_V2
 $FAIL_C_V1
 $FAIL_M_V1

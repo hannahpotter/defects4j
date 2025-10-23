@@ -73,30 +73,35 @@ or (if -b is specified) for a subset of candidates:
 
 =over 4
 
-=item 1) Verify that src diff (between pre-fix and post-fix) is not empty.
+=item 1) Checkout fixed revision.
 
-=item 3) Checkout fixed revision.
+=item 2) Compile src and test. If compilation fails, fixes will be attempted until one
+         is successful or there are no more fixes to try.
 
-=item 4) Compile src and test.
+=item 3) Apply src patch (fixed -> buggy).
 
-=item 5) Run tests and log failing tests to F<C<PROJECTS_DIR>/<PID>/failing_tests>.
+=item 4) Compile src and test. If compilation fails, fixes will be attempted until one
+         is successful or there are no more fixes to try.
 
-=item 6) Exclude failing tests, recompile and rerun. This is repeated until
+=item 5) Checkout fixed version.
+
+=item 6) Run tests and log failing tests to F<C<PROJECTS_DIR>/<PID>/failing_tests>.
+         If there are test errors, fixes will be attempted until one is successful
+         or there are no more fixes to try.
+
+=item 7) Exclude failing tests, recompile and rerun. This is repeated until
          there are no more failing tests in F<$TEST_RUNS> consecutive
          executions. (Maximum limit of looping in this phase is specified by
          F<$MAX_TEST_RUNS>).
-
-=item 7) Checkout fixed version.
-
-=item 8) Apply src patch (fixed -> buggy).
-
-=item 9) Compile src and test.
 
 =back
 
 The result for each individual step is stored in F<C<work_dir>/$TAB_REV_PAIRS>.
 For each steps the output table contains a column, indicating the result of the
 the step or '-' if the step was not applicable.
+The result for attempted fixes is stored in F<C<work_dir>/framework/projects/C<project_id>/$TAB_POM_FIX>.
+For each relevant attempted fix, the output table contains a column indicating the result of the attempt
+or '-' if the attempt was not applicable.
 
 =cut
 use warnings;
@@ -135,21 +140,15 @@ if (defined $BID) {
 unshift(@INC, "$WORK_DIR/framework/core");
 
 # Override global constants
+# Set the projects and repository directories to the current working directory
 $REPO_DIR = "$WORK_DIR/project_repos";
 $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 
-# Set the projects and repository directories to the current working directory
-my $PATCHES_DIR = "$PROJECTS_DIR/$PID/patches";
 my $FAILING_DIR = "$PROJECTS_DIR/$PID/failing_tests";
-
-my $SCRIPTS = "$WORK_DIR/../../../scripts";
 my $DEPENDENCIES = "$PROJECTS_DIR/$PID/lib/dependency";
-my $ANALYZER_OUTPUT = "$PROJECTS_DIR/$PID/analyzer_output";
-my $ARGS_FILES = "$PROJECTS_DIR/$PID/args_files";
-system("mkdir -p $ARGS_FILES");
 
--d $PATCHES_DIR or die "$PATCHES_DIR does not exist: $!";
 -d $FAILING_DIR or die "$FAILING_DIR does not exist: $!";
+-d $DEPENDENCIES or die "$DEPENDENCIES does not exist: $!";
 
 # Keep log of issues
 my $LOG = "$PROJECTS_DIR/$PID/analyze_project_error_log.txt";
@@ -195,6 +194,10 @@ foreach my $bid (@bids) {
     $pom_data{$PROJECT} = $PID;
     $pom_data{$ID} = $bid;
 
+    # Clean previous results
+    my $v2 = $project->lookup("${bid}f");
+    `rm $FAILING_DIR/$v2` if -e "$FAILING_DIR/$v2";
+
     _check_compilation($project, $bid, \%rev_data, \%pom_data) and
     _export_tests($project, $bid, \%rev_data, \%pom_data);
 
@@ -223,21 +226,26 @@ sub _check_compilation {
     # Checkout v1
     $project->checkout_vid("${bid}b", $TMP_DIR, 1) == 1 or die;
 
+    my $pass_cond = sub {
+        my ($ret) = @_;
+        return $ret;
+    };
+
     # Check that the v1 and t2 compile with maven
-    my $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, "Error compiling source v1 for bug ${bid}");
+    my $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, $pass_cond, "Error compiling source v1 for bug ${bid}");
     _add_bool_result($rev_data, $COMP_V1, $ret) or return 0;
 
-    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile, "Error compiling tests v1t2 for bug ${bid}");
+    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile, $pass_cond, "Error compiling tests v1t2 for bug ${bid}");
     _add_bool_result($rev_data, $COMP_T2V1, $ret) or return 0;
 
     # Checkout v2
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
 
     # Check that the v2 and t2 compile with maven
-    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, "Error compiling source v2 for bug ${bid}");
+    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, $pass_cond, "Error compiling source v2 for bug ${bid}");
     _add_bool_result($rev_data, $COMP_V2, $ret) or return 0;
 
-    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile, "Error compiling tests v2t2 for bug ${bid}");
+    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile, $pass_cond,  "Error compiling tests v2t2 for bug ${bid}");
     _add_bool_result($rev_data, $COMP_T2V2, $ret) or return 0;
 }
 
@@ -252,11 +260,7 @@ sub _export_tests {
     my $project_path = $project->{prog_root};
 
     # Lookup revision ids
-    my $v1 = $project->lookup("${bid}b");
     my $v2 = $project->lookup("${bid}f");
-
-    # Clean previous results
-    `>$FAILING_DIR/$v2` if -e "$FAILING_DIR/$v2";
 
     # Checkout v2
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
@@ -266,9 +270,13 @@ sub _export_tests {
     while ($successful_runs < $TEST_RUNS && $run <= $MAX_TEST_RUNS) {
         # Automatically fix broken tests and recompile
         $project->fix_tests("${bid}f");
+        $project->mvn_test_compile();
 
         # Run t2 tests with maven and get the number of failing tests
-        my $ret = _try_command($bid, $project, $pom_data, \&Project::run_mvn_tests, "Error running tests for bug ${bid}");
+        my $pass_cond = sub {
+            return ! Utils::is_errors_tests_mvn("$project_path/target/surefire-reports");
+        };
+        my $ret = _try_command($bid, $project, $pom_data, \&Project::run_mvn_tests, $pass_cond, "Error running tests for bug ${bid}");
         if (! $ret) {
             $rev_data->{$FAIL_T2V2} = '-';
             return 0;
@@ -276,8 +284,8 @@ sub _export_tests {
 	
         # Get number of failing tests
         my $file = "$TMP_DIR/v2.fail"; `>$file`;
-        my $list = Utils::extract_failing_tests_mvn("$project_path/target/surefire-reports", $file);
-        my $fail = scalar(@{$list->{"classes"}}) + scalar(@{$list->{"methods"}});
+        my @list = Utils::extract_failing_tests_mvn("$project_path/target/surefire-reports", $file);
+        my $fail = scalar(@list);
         if ($run == 1) {
             $rev_data->{$FAIL_T2V2} = $fail;
         } else {
@@ -286,13 +294,11 @@ sub _export_tests {
 
         ++$successful_runs;
         # Append to log if there were (new) failing tests
-        # TODO Add list of methods to a particular log and then replace/add new log
-        # getting the stack traces from the native calls
         unless ($fail == 0) {
             open(OUT, ">>$FAILING_DIR/$v2") or die "Cannot write failing tests: $!";
             print OUT "## $project->{prog_name}: $v2 ##\n";
             close OUT;
-            system("cat $file >> $FAILING_DIR/$v2"); 
+            system("cat $file >> $FAILING_DIR/$v2");
             $successful_runs = 0;
         }
         system("rm $file");          
@@ -309,12 +315,13 @@ sub _export_tests {
 # is found or all patterns have been tried.
 # 
 sub _try_command {
-    @_ == 5 or die $ARG_ERROR;
-    my ($bid, $project, $pom_data, $mvn_cmd, $err_msg) = @_;
+    @_ == 6 or die $ARG_ERROR;
+    my ($bid, $project, $pom_data, $mvn_cmd, $pass_check, $err_msg) = @_;
     my $project_path = $project->{prog_root};
 
     my $original_log;
-    my $original_ret = $mvn_cmd->($project, \$original_log);
+    my $original_ret = $pass_check->($mvn_cmd->($project, \$original_log));
+    my $failed_attempt_log = "--- Original failed attempt\n$original_log";
     if (! $original_ret) {
         open(IN, "<$UTIL_DIR/log_fix.patterns") or die("Cannot read log pattern file");
         my @patterns = <IN>;
@@ -328,21 +335,23 @@ sub _try_command {
             # If the pattern is present in the log, attempt the fix for the issue name
             if (${original_log} =~ /$pattern/) {
                 $pom_data->{$issue_name} = 1; 
-                Utils::fix_pom("$project_path/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns", $pom_data) if -e "$project_path/pom.xml";
+                Utils::fix_pom("$project_path/pom.xml", "$UTIL_DIR/fix_pom_properties.patterns", "$UTIL_DIR/fix_pom_config.patterns", $pom_data) if -e "$project_path/pom.xml";
 
-                my $attempt_ret = $mvn_cmd->($project);
+                my $attempt_log;
+                my $attempt_ret = $pass_check->($mvn_cmd->($project, \$attempt_log));
                 # If the fix works, make sure that the copy of dependencies is up to date
                 if ($attempt_ret) {
                     $project->run_mvn_copy_dependencies($DEPENDENCIES);
                     return $attempt_ret;
                 } else {
                     $pom_data->{$issue_name} = 0;
+                    $failed_attempt_log = "--- Failed attempt for $issue_name fix\n${attempt_log}\n$failed_attempt_log";
                 }
             }
         } 
 
         # No fix was found
-        system("echo \"--------------------- $err_msg --------------------- \n${original_log}\n\n\" >> $LOG");
+        system("echo \"--------------------- $err_msg --------------------- \n${failed_attempt_log}\n\n\" >> $LOG");
         return $original_ret; 
     }
 
@@ -431,6 +440,6 @@ Previous step in workflow: Manually verify that all test failures
 (failing_tests) are valid and not spurious, broken, random, or due to classpath
 issues.
 
-Next step in workflow: F<get-trigger.pl>.
+Next step in workflow: F<extract-native.pl>.
 
 =cut

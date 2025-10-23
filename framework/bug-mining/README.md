@@ -125,7 +125,8 @@ This script performs 3 tasks:
 1. Initialize all project revisions with `initialize-revisions.pl`. This script
    will identify the various directory layouts, check that dependencies can be 
    resolved, and download local copies of dependencies on each candidate revision 
-   in `active-bugs.csv`:
+   in `active-bugs.csv`. Candidate bugs that have an empty source diff will be removed
+   at this step:
 
 ```bash
 ./initialize-revisions.pl -p $PROJECT_ID -w $WORK_DIR
@@ -141,12 +142,11 @@ might need to be manually adapted.
 If the build of a revision fails, the `initialize_revisions_error_log.txt` file under
 `$WORK_DIR/framework/projects/$PROJECT_ID` will provide logging information for the issue.
 If there is an issue with a dependency url, edit `fix_dependency_urls.patterns`.
-If there is an issue with a broekn dependency declaration in the pom file, edit `fix_pom_dependency_declarations.patterns1`.
-Once a fix has been made, remove the related bug entry from `bootstrap` and rerun `initialize_revision.pl`.
+If there is an issue with a broken dependency declaration in the pom file, edit `fix_pom_dependency_declarations.patterns`.
+Once a fix has been made, remove the related bug entry from `$WORK_DIR/bootstrap` and rerun `initialize_revision.pl`.
 
 2. Analyze all revisions with `analyze-project.pl`. This script will identify
-   suitable candidate bugs -- ones that compile and have a non-empty source
-   diff:
+   suitable candidate bugs -- ones that compile and whose tests do not have errors running:
 
 ```bash
 ./analyze-project.pl -p $PROJECT_ID \
@@ -155,12 +155,37 @@ Once a fix has been made, remove the related bug entry from `bootstrap` and reru
                      -t $ISSUE_TRACKER_PROJECT_ID
 ```
 
+If the build of a revision fails, the `analyze_project_error_log.txt` file under
+`$WORK_DIR/framework/projects/$PROJECT_ID` will provide logging information for the issue.
+If there is an issue with pom properties, edit `fix_pom_properties.patterns`.
+If there is an issue with pom plugins, edit `fix_pom_config.patterns`.
+- For issues with pom plugins, if the fix should only be applied conditionally (i.e. only applied if a specific
+  error occurs):
+  1. Add the pattern to `fix_pom_config.patterns` with a descriptive condition identifier.
+  2. Use the same condition identifier to update `log_fix.patterns` with a pattern to look for in the error logs.
+  3. Use the same condition identifier to update `DB.pm` with the additional column and leave a comment describing the issue.
+  4. Update `$WORK_DIR/framework/projects/$PROJECT_ID/pom_fix` by adding the appropriate header and `-` default values to all rows.
+
+Once a fix has been made, remove the related bug entry from `$WORK_DIR/rev_pairs` and `$WORK_DIR/framework/projects/$PROJECT_ID/pom_fix` and rerun `analyze_project.pl` with `-b <bug_id>`.
+
+Upon completion of this stage:
+  - Inspect all stack traces in the files that are
+    generated in the `$WORK_DIR/framework/projects/$PROJECT_ID/failing_tests`
+    folder to ensure that tests failed for valid reasons and not due to
+    configuration errors. Failed assertions are generally valid test failures.
+    Missing files or classes are generally due to a configuration issue.
+  - Inspect all build and test errors in `$WORK_DIR/framework/projects/$PROJECT_ID/analyze_project_error_log.txt`
+    to ensure the errors are for valid reasons and not due to configuration errors.
+    Issues with missing symbols for building v1 with t2 tests (the error log indicates this issue
+    and `compile_t2v1` is 0 in `$WORK_DIR/rev_pairs` for the bug id) are generally valid errors.
+
 
 ### Tips in case a revision fails to build
 
-1. If any revisions fail to build, inspect the project build script
-   (`$WORK_DIR/framework/projects/$PROJECT_ID/$PROJECT_ID.build.xml`) and the
+1. If any revisions fail to build, inspect the
    error message(s) and attempt to diagnose the issue. Some common problems are:
+    - Plugin versions that are incompatible with the version of Java Defects4J is using
+      (typically this just requires setting a higher plugin version in `fix_pom_config.patterns`).
     - Missing dependencies (may require specified directory structure for
       dependency files).
     - For Gradle projects, such as the `Mockito` project, manually adapt a
@@ -175,38 +200,13 @@ Once a fix has been made, remove the related bug entry from `bootstrap` and reru
    `$WORK_DIR/framework/projects/$PROJECT_ID/failing_tests` folder. This file
    contains the stack trace for all tests that fail when executed against the
    "fixed" version of a class. If all tests fail due to a NoClassDefFoundError
-   (or similar exception), then remove the `failing_test` file, ensure that the
-   missing dependency is in place, and reanalyze the specific revisions by
-   deleting the corresponding entries in `$WORK_DIR/rev_pairs` and running
-   `initialize-revisions.pl` with `-b <bug_id>`.
+   (or similar exception), then remove the `failing_test` file and ensure that the
+   missing dependency is in place.
 
-3. If a build fails due to running empty test set in "run.dev.tests" step, below
-   is a list of common situations that might need to be addressed:
-    - The directory structure or the property keys that contain directory
-      structure information have changed for this failing version (or most of
-      the versions afterwards). To address this, checkout the particular
-      version, inspect its properties related to source/test directories, then
-      adapt the changes in `$PROJECT_ID.build.xml`. Reanalyze the specific
-      revision by deleting the corresponding entries in `$WORK_DIR/rev_pairs`
-      and running `initialize-revisions.pl` with `-b <bug_id>`.
-    - Make sure the `all.manual.tests` fileset in `$PROJECT_ID.build.xml` is
-      covering the tests listed in project version-specific build files.
-    - Reanalyze the specific revisions by deleting the corresponding entries in
-      `$WORK_DIR/rev_pairs` and running `initialize-revisions.pl` with
-      `-b <bug_id>`.
-
-4. If particular revisions cannot be built, often due to dependencies that no
+3. If particular revisions cannot be built, often due to dependencies that no
    longer exist, then they may be removed from the `active-bugs.csv`. It is
    recommended to keep a backup of the active-bugs.csv until the entire bug mining
    process is complete.
-
-5. Upon completion of this stage, inspect all stack traces in the files that are
-   generated in the `$WORK_DIR/framework/projects/$PROJECT_ID/failing_tests`
-   folder to ensure that tests failed for valid reasons, and not due to
-   configuration errors. Failed assertions are generally valid test failures.
-   Missing files or classes are generally due to a configuration issue.
-
-
 
 ## Reproducing bugs
 

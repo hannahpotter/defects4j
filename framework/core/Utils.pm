@@ -464,46 +464,64 @@ sub fix_pom {
     foreach my $l (@patterns) {
         $l =~ /^\s*#/ and next;
         chomp($l);
-        $l =~ /([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <groupId>,<artifactId>,<childPath>,<newXMLElement>,<condition>)");
-        my ($updateGroupId, $updateArtifactId, $updateChildPath, $change, $condition) = split(",", $l);
+        $l =~ /([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <PLUGIN/DEPENDENCY>,<groupId>,<artifactId>,<childPath>,<newXMLElement>,<condition>)");
+        my ($change_type, $updateGroupId, $updateArtifactId, $updateChildPath, $change, $condition) = split(",", $l);
         
+        my $parent_find;
+        my $element_find;
+        my $element_id;
+        if ($change_type eq "PLUGIN") {
+            $parent_find = 
+            # Look for both ns:plugin and plugin to deal with namespace shenanigans when adding new elements
+            $element_find = "//ns:build/ns:plugins/ns:plugin | //ns:build/*/ns:plugins/ns:plugin | ".
+                                             "//ns:build/ns:plugins/plugin    | //ns:build/*/ns:plugins/plugin";
+            $parent_find = "//ns:build/ns:plugins | //ns:build/*/ns:plugins";
+            $element_id = "plugin";
+        } elsif ($change_type eq "DEPENDENCY") {
+            # Look for both ns:dependency and dependency to deal with namespace shenanigans when adding new elements
+            $element_find = "//ns:dependencies/ns:dependency | //ns:build/ns:dependencies/dependency";
+            $parent_find = "//ns:dependencies";
+            $element_id = "dependency";
+        } else {
+            die("Row in pattern file is wrong format: $l (first element expected to be PLUGIN or DEPENDENCY)");
+        }
+
+
         # If this is a conditional update, skip if the condition is not met
         my $applies = $conditional_fixes->{$condition};
         if (!($condition eq "NONE") && !$applies) {
             next;
         }
 
-        my $plugin;
-        # Find the plugin if it is already in the pom file
-        # Look for both ns:plugin and plugin to deal with namespace shenanigans when adding new elements
-        foreach my $element ($xpc->findnodes("//ns:build/ns:plugins/ns:plugin | //ns:build/*/ns:plugins/ns:plugin | ".
-                                             "//ns:build/ns:plugins/plugin    | //ns:build/*/ns:plugins/plugin")) {
+        my $plugin_or_dependency;
+        # Find the plugin or dependency if it is already in the pom file
+        foreach my $element ($xpc->findnodes($element_find)) {
             my($artifact_id_node) = $element->getChildrenByTagName('artifactId');
             my($artifact_id) = $artifact_id_node->childNodes();
             if ($artifact_id->data eq $updateArtifactId) {
-                $plugin = $element;
+                $plugin_or_dependency = $element;
                 last;
             } 
         }
-        # If the plugin is not already in the pom file, add it
-        if (!$plugin) {
-            $plugin = $dom->createElement("plugin");
+        # If the plugin or dependency is not already in the pom file, add it
+        if (!$plugin_or_dependency) {
+            $plugin_or_dependency = $dom->createElement($element_id);
 
             my $group_id = $dom->createElement("groupId"); 
             $group_id->appendText($updateGroupId);
             my $artifact_id = $dom->createElement("artifactId"); 
             $artifact_id->appendText($updateArtifactId);
-            $plugin->addChild($group_id);
-            $plugin->addChild($artifact_id);
+            $plugin_or_dependency->addChild($group_id);
+            $plugin_or_dependency->addChild($artifact_id);
 
-            foreach my $element ($xpc->findnodes("//ns:build/ns:plugins | //ns:build/*/ns:plugins")) {
-                $element->addChild($plugin);
+            foreach my $element ($xpc->findnodes($parent_find)) {
+                $element->addChild($plugin_or_dependency);
             }
         }
 
         # Find the element at the child path if it exists, otherwise create it
         my @pathPieces = split("/", $updateChildPath);
-        my $previousChild = $plugin;
+        my $previousChild = $plugin_or_dependency;
         foreach my $tag (@pathPieces) {
             my($currentChild) = $previousChild->getChildrenByTagName($tag);
             # Add the child element if it does not already exist
@@ -1011,19 +1029,50 @@ sub get_total_tests_mvn {
 
 =pod
 
+=item C<Utils::is_errors_tests_mvn(test_result_file)>
+
+Determines if there are tests with errors.
+
+=cut
+
+sub is_errors_tests_mvn {
+    @_ == 1 or die $ARG_ERROR;
+    my ($folder_name) = @_;
+
+    # No test results yet
+    if (!(-d $folder_name)) {
+        return 0;
+    }
+
+    opendir my($dirhandle), $folder_name;
+    my @files = grep { /\.xml$/ } readdir $dirhandle;
+
+    foreach my $file (@files) {
+        my $dom = XML::LibXML->load_xml(location => "$folder_name/$file") or die("Cannot read the xml file: $file");
+        foreach my $test_suite ($dom->findnodes('//testsuite')) {
+            my $errors = scalar($test_suite->getAttribute('errors'));
+
+            if ($errors != 0) {
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+=pod
+
 =item C<Utils::extract_failing_tests_mvn(test_result_file [, output_file])>
 
 Determines all failing test classes and test methods in F<test_result_file>,
 which may contain arbitrary lines. A line indicating a test failure matches the
-following pattern: C</--- ([^:]+)(::([^:]+))?/>.
+following pattern: C</--- ([^:]+)(::([^:]+))/>.
 If C<output_file> is provided, the failing test info is saved to the file.
 
-This subroutine returns a reference to a hash that contains three keys (C<classes>,
-C<methods>, and C<asserts>), which map to lists of failing tests:
+This subroutine returns a list of failing tests:
 
-  {classes} => [org.foo.Class1 org.bar.Class2]
-  {methods} => [org.foo.Class3::method1 org.foo.Class3::method2]
-  {asserts} => {org.foo.Class3::method1} => 4711
+[org.foo.Class3::method1 org.foo.Class3::method2]
 
 =cut
 
@@ -1031,10 +1080,7 @@ sub extract_failing_tests_mvn {
     @_ >= 1 or die $ARG_ERROR;
     my ($folder_name, $output_file) = @_;
 
-    my $list = {
-        classes => [],
-        methods => [],
-    };
+    my @list = ();
 
     my $fh;
     if (defined $output_file) {
@@ -1043,7 +1089,7 @@ sub extract_failing_tests_mvn {
 
     # No test results yet
     if (!(-d $folder_name)) {
-        return $list;
+        return @list;
     }
 
     opendir my($dirhandle), $folder_name;
@@ -1053,32 +1099,29 @@ sub extract_failing_tests_mvn {
         my $dom = XML::LibXML->load_xml(location => "$folder_name/$file") or die("Cannot read the xml file: $file");
         foreach my $test_suite ($dom->findnodes('//testsuite')) {
             my $num_tests = scalar($test_suite->getAttribute('tests'));
-            my $errors = scalar($test_suite->getAttribute('errors'));
-            my $failures = scalar($test_suite->getAttribute('failures'));
+            my $failures = scalar($test_suite->getAttribute('errors')) + scalar($test_suite->getAttribute('failures'));
 
             my $class = $test_suite->getAttribute('name');
 
-            if ($num_tests != 0 && $num_tests == ($errors + $failures)) {
-                print "Failing class? $class\n";
-                push(@{$list->{classes}}, $class);
-            } else {
-                my $found = 0;
-                # Find the test cases with errors
-                foreach my $test_case_error ($test_suite->findnodes('./testcase/failure '
+            my $found = 0;
+            # Find the test cases with failures and errors
+            foreach my $test_case_error ($test_suite->findnodes('./testcase/failure '
                                                                  .'| ./testcase/rerunFailure '
                                                                  .'| ./testcase/flakyFailure '
                                                                  .'| ./testcase/error '
                                                                  .'| ./testcase/rerunError '
                                                                  .'| ./testcase/flakyError')) {
-                    my $method = $test_case_error->getParentNode->getAttribute('name');
-                    push(@{$list->{methods}}, "${class}::$method");
+                my $method = $test_case_error->getParentNode->getAttribute('name');
+                push(@list, "${class}::$method");
 
-                    if (defined $output_file) {
-                        print "Failing method? ${class}::$method\n";
-                        my $test_output = $test_case_error->getParentNode;
-                        print $fh "--- ${class}::$method\n";
-                    }
+                if (defined $output_file) {
+                    my $test_output = $test_case_error->to_literal();
+                    print $fh "--- ${class}::$method\n$test_output";
                 }
+                $found += 1;
+            }
+            if ($found != $failures) {
+                die "Only $found tests extracted from Mvn Surefire report, but expected $failures"
             }
         }
     }
@@ -1086,8 +1129,9 @@ sub extract_failing_tests_mvn {
     if (defined $output_file) {
         close $fh;
     }
+    closedir $dirhandle;
 
-    return $list;
+    return @list;
 }
 
 =pod

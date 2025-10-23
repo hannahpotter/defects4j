@@ -28,7 +28,8 @@
 
 initialize-revisions.pl -- Initialize all revisions: identify the directory
 layout, check that dependencies can be resolved, and download local copies
-of dependencies for each revision.
+of dependencies for each revision. Candidate bugs that have an empty source
+diff will be removed at this step.
 
 =head1 SYNOPSIS
 
@@ -61,6 +62,8 @@ Debug: Enable verbose logging and do not delete the temporary check-out director
 (optional).
 
 =back
+
+The results are stored in F<C<work_dir>/$TAB_BOOTSTRAP>.
 
 =cut
 use warnings;
@@ -103,13 +106,12 @@ $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 # Create necessary directories
 my $PROJECT_DIR = "$PROJECTS_DIR/$PID";
 my $PATCH_DIR   = "$PROJECT_DIR/patches";
-my $ANALYZER_OUTPUT = "$PROJECT_DIR/analyzer_output";
 my $DEPENDENCIES = "$PROJECT_DIR/lib/dependency";
 
 -d $PROJECT_DIR or die "$PROJECT_DIR does not exist: $!";
 -d $PATCH_DIR or die "$PATCH_DIR does not exist: $!";
 
-system("mkdir -p $ANALYZER_OUTPUT $DEPENDENCIES");
+system("mkdir -p $DEPENDENCIES");
 
 # Keep log of issues
 my $LOG = "$PROJECT_DIR/initialize_revisions_error_log.txt";
@@ -170,7 +172,7 @@ sub _init_maven {
     # Update the pom.xml to update pom elements.
     Utils::fix_dependencies("$work_dir/pom.xml", "$UTIL_DIR/fix_dependency_urls.patterns", 0);
     Utils::fix_dependencies("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_declarations.patterns", 1);
-    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_elements.patterns", "$UTIL_DIR/fix_pom_plugins.patterns", {});
+    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_properties.patterns", "$UTIL_DIR/fix_pom_config.patterns", {});
 
     # Check for dependencies that can't be resolved
     my $check_dep = "cd $work_dir && mvn dependency:resolve";
@@ -306,7 +308,7 @@ foreach my $bid (@ids) {
     }
 
     # Clean up previously generated data
-    system("rm -rf $ANALYZER_OUTPUT/${bid} $PATCH_DIR/${bid}.src.patch $PATCH_DIR/${bid}.test.patch");
+    system("rm -rf $PATCH_DIR/${bid}.src.patch $PATCH_DIR/${bid}.test.patch");
 
     my %data;
     $data{$PROJECT} = $PID;

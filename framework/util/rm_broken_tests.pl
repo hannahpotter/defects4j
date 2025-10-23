@@ -85,7 +85,7 @@ list will appear before any of its failing methods.
 
 =cut
 
-my @list = `grep -a "^---" $log_file | sort -u -k1 -t":"`;
+my @list = `grep -a "^--- " $log_file | sort -u -k1 -t":"`;
 
 my $counter=0;
 my @tests;
