@@ -839,7 +839,7 @@ sub run_mvn_tests {
     # Animal sniffer is incompatible with Java 11 (the --release flag in javac does the same functionality)
     # Jacoco is for instrumenting class files to get code coverage reports
     my $cmd = " cd $self->{prog_root}" .
-              " && mvn test -Danimal.sniffer.skip=true -Djacoco.skip=true" .
+              " && mvn test -Danimal.sniffer.skip=true -Djacoco.skip=true -Dmaven.test.failure.ignore=true" .
               "  2>&1";
     my $log;
     my $ret = Utils::exec_cmd($cmd, "Running maven test", \$log);

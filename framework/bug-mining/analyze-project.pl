@@ -57,7 +57,7 @@ commons-lang project is LANG.
 =item B<-b C<bug_id>>
 
 Only analyze this bug id. The bug_id has to follow the format B<(\d+)(:(\d+))?>.
-By default all bug ids, listed in the active-bugs csv, are considered.
+By default all bug ids that were successfully bootstrapped, listed in F<C<work_dir>/$TAB_BOOTSTRAP>, are considered.
 
 =item B<-D>
 
@@ -68,7 +68,7 @@ Debug: Enable verbose logging and do not delete the temporary check-out director
 
 =head1 DESCRIPTION
 
-Runs the following worflow for all candidate bugs in the project's C<active-bugs.csv>,
+Runs the following worflow for all candidate bugs that were successfully bootstrapped, listed in F<C<work_dir>/$TAB_BOOTSTRAP>,
 or (if -b is specified) for a subset of candidates:
 
 =over 4
@@ -226,26 +226,21 @@ sub _check_compilation {
     # Checkout v1
     $project->checkout_vid("${bid}b", $TMP_DIR, 1) == 1 or die;
 
-    my $pass_cond = sub {
-        my ($ret) = @_;
-        return $ret;
-    };
-
     # Check that the v1 and t2 compile with maven
-    my $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, $pass_cond, "Error compiling source v1 for bug ${bid}");
+    my $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, "Error compiling source v1 for bug ${bid}");
     _add_bool_result($rev_data, $COMP_V1, $ret) or return 0;
 
-    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile, $pass_cond, "Error compiling tests v1t2 for bug ${bid}");
+    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile, "Error compiling tests v1t2 for bug ${bid}");
     _add_bool_result($rev_data, $COMP_T2V1, $ret) or return 0;
 
     # Checkout v2
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
 
     # Check that the v2 and t2 compile with maven
-    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, $pass_cond, "Error compiling source v2 for bug ${bid}");
+    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, "Error compiling source v2 for bug ${bid}");
     _add_bool_result($rev_data, $COMP_V2, $ret) or return 0;
 
-    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile, $pass_cond,  "Error compiling tests v2t2 for bug ${bid}");
+    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile,  "Error compiling tests v2t2 for bug ${bid}");
     _add_bool_result($rev_data, $COMP_T2V2, $ret) or return 0;
 }
 
@@ -273,10 +268,7 @@ sub _export_tests {
         $project->mvn_test_compile();
 
         # Run t2 tests with maven and get the number of failing tests
-        my $pass_cond = sub {
-            return ! Utils::is_errors_tests_mvn("$project_path/target/surefire-reports");
-        };
-        my $ret = _try_command($bid, $project, $pom_data, \&Project::run_mvn_tests, $pass_cond, "Error running tests for bug ${bid}");
+        my $ret = _try_command($bid, $project, $pom_data, \&Project::run_mvn_tests, "Error running tests for bug ${bid}");
         if (! $ret) {
             $rev_data->{$FAIL_T2V2} = '-';
             return 0;
@@ -315,12 +307,12 @@ sub _export_tests {
 # is found or all patterns have been tried.
 # 
 sub _try_command {
-    @_ == 6 or die $ARG_ERROR;
-    my ($bid, $project, $pom_data, $mvn_cmd, $pass_check, $err_msg) = @_;
+    @_ == 5 or die $ARG_ERROR;
+    my ($bid, $project, $pom_data, $mvn_cmd, $err_msg) = @_;
     my $project_path = $project->{prog_root};
 
     my $original_log;
-    my $original_ret = $pass_check->($mvn_cmd->($project, \$original_log));
+    my $original_ret = $mvn_cmd->($project, \$original_log);
     my $failed_attempt_log = "--- Original failed attempt\n$original_log";
     if (! $original_ret) {
         open(IN, "<$UTIL_DIR/log_fix.patterns") or die("Cannot read log pattern file");
@@ -338,7 +330,7 @@ sub _try_command {
                 Utils::fix_pom("$project_path/pom.xml", "$UTIL_DIR/fix_pom_properties.patterns", "$UTIL_DIR/fix_pom_config.patterns", $pom_data) if -e "$project_path/pom.xml";
 
                 my $attempt_log;
-                my $attempt_ret = $pass_check->($mvn_cmd->($project, \$attempt_log));
+                my $attempt_ret = $mvn_cmd->($project, \$attempt_log);
                 # If the fix works, make sure that the copy of dependencies is up to date
                 if ($attempt_ret) {
                     $project->run_mvn_copy_dependencies($DEPENDENCIES);

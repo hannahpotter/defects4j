@@ -1029,40 +1029,6 @@ sub get_total_tests_mvn {
 
 =pod
 
-=item C<Utils::is_errors_tests_mvn(test_result_file)>
-
-Determines if there are tests with errors.
-
-=cut
-
-sub is_errors_tests_mvn {
-    @_ == 1 or die $ARG_ERROR;
-    my ($folder_name) = @_;
-
-    # No test results yet
-    if (!(-d $folder_name)) {
-        return 0;
-    }
-
-    opendir my($dirhandle), $folder_name;
-    my @files = grep { /\.xml$/ } readdir $dirhandle;
-
-    foreach my $file (@files) {
-        my $dom = XML::LibXML->load_xml(location => "$folder_name/$file") or die("Cannot read the xml file: $file");
-        foreach my $test_suite ($dom->findnodes('//testsuite')) {
-            my $errors = scalar($test_suite->getAttribute('errors'));
-
-            if ($errors != 0) {
-                return 1;
-            }
-        }
-    }
-
-    return 0;
-}
-
-=pod
-
 =item C<Utils::extract_failing_tests_mvn(test_result_file [, output_file])>
 
 Determines all failing test classes and test methods in F<test_result_file>,
