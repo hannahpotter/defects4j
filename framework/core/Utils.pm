@@ -1244,7 +1244,7 @@ sub mvn_extract_test_info {
 
     open my $junit, '>', "$output_folder/junit_version.txt" or die "Can't open junit version file\n";
     my $version;
-    if ($dependency_path =~ /junit-(\d+).(\d+).?(\d+)?/) {
+    if ($dependency_path =~ /\/junit-(\d+).(\d+).?(\d+)?/) {
         if ($1 == "3" && ($2 != "8" && $2 != "9")) {
             die "Unsupported Junit version: $1.$2";
         }   

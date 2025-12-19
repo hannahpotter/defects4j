@@ -208,6 +208,21 @@ Upon completion of this stage:
    recommended to keep a backup of the active-bugs.csv until the entire bug mining
    process is complete.
 
+## Extract metadata to compile and run candidate bugs using native javac and junit
+
+1. Extract the metadata needed to compile and run candiate bugs using native `javac` and 
+    `junit` with the `extract-native.pl` script. This will check whether the pre-fix and
+    post-fix revisions of the candidate bugs can be compiled with `javac` and that 
+    the results of running tests on the post-fix revision is the same using `junit` directly as it is through the project's build system:
+
+```bash
+./extract-native.pl -p $PROJECT_ID \
+                    -w $WORK_DIR
+```
+
+If extracting the metadata for a revision fails fails, the `extract_native_error_log.txt` file under
+`$WORK_DIR/framework/projects/$PROJECT_ID` will provide logging information for the issue.
+
 ## Reproducing bugs
 
 1. Determine triggering tests with the `get-trigger.pl` script. This will

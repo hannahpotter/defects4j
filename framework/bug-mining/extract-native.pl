@@ -26,11 +26,11 @@
 
 =head1 NAME
 
-analyze-project.pl -- Determine all suitable candidates listed in the active-bugs csv.
+extract-native.pl -- Extract the metadata needed to compile and run candidate bugs using javac and junit
 
 =head1 SYNOPSIS
 
-analyze-project.pl -p project_id -w work_dir -g tracker_name -t tracker_project_id [-b bug_id] [-D]
+extract-native.pl -p project_id -w work_dir [-b bug_id] [-D]
 
 =head1 OPTIONS
 
@@ -44,20 +44,10 @@ The id of the project for which the version pairs are analyzed.
 
 The working directory used for the bug-mining process.
 
-=item B<-g C<tracker_name>>
-
-The source control tracker name, e.g., jira, github, google, or sourceforge.
-
-=item B<-t C<tracker_project_id>>
-
-The name used on the issue tracker to identify the project. Note that this might
-not be the same as the Defects4j project name / id, for instance, for the
-commons-lang project is LANG.
-
 =item B<-b C<bug_id>>
 
 Only analyze this bug id. The bug_id has to follow the format B<(\d+)(:(\d+))?>.
-By default all bug ids, listed in the active-bugs csv, are considered.
+By default all bug ids that compile and whose tests do not have errors running, listed in F<C<work_dir>/$TAB_REV_PAIRS>, are considered.
 
 =item B<-D>
 
@@ -68,33 +58,25 @@ Debug: Enable verbose logging and do not delete the temporary check-out director
 
 =head1 DESCRIPTION
 
-Runs the following worflow for all candidate bugs in the project's C<active-bugs.csv>,
+Runs the following worflow for all suitable candidate bugs listed in F<C<work_dir>/$TAB_REV_PAIRS>,
 or (if -b is specified) for a subset of candidates:
 
 =over 4
 
-=item 1) Verify that src diff (between pre-fix and post-fix) is not empty.
+=item 1) Checkout buggy version
 
-=item 3) Checkout fixed revision.
+=item 2) Compile source and tests
 
-=item 4) Compile src and test.
+=item 3) Checkout fixed version
 
-=item 5) Run tests and log failing tests to F<C<PROJECTS_DIR>/<PID>/failing_tests>.
+=item 4) Compile source and tests
 
-=item 6) Exclude failing tests, recompile and rerun. This is repeated until
-         there are no more failing tests in F<$TEST_RUNS> consecutive
-         executions. (Maximum limit of looping in this phase is specified by
-         F<$MAX_TEST_RUNS>).
-
-=item 7) Checkout fixed version.
-
-=item 8) Apply src patch (fixed -> buggy).
-
-=item 9) Compile src and test.
+=item 5) Run tests and confirm that the result is the same using JUnit as running with the build system. 
+         There should be no failing tests and the same number of tests should be run.
 
 =back
 
-The result for each individual step is stored in F<C<work_dir>/$TAB_REV_PAIRS>.
+The result for each individual step is stored in F<C<work_dir>/$TAB_NATIVE>.
 For each steps the output table contains a column, indicating the result of the
 the step or '-' if the step was not applicable.
 
@@ -114,18 +96,15 @@ use DB;
 use Utils;
 
 my %cmd_opts;
-getopts('p:w:g:t:b:D', \%cmd_opts) or pod2usage(1);
+getopts('p:w:b:D', \%cmd_opts) or pod2usage(1);
 
-pod2usage(1) unless defined $cmd_opts{p} and defined $cmd_opts{w}
-                    and defined $cmd_opts{g} and defined $cmd_opts{t};
+pod2usage(1) unless defined $cmd_opts{p} and defined $cmd_opts{w};
 
 my $PID = $cmd_opts{p};
 my $BID = $cmd_opts{b};
 my $WORK_DIR = abs_path($cmd_opts{w});
 my $TEST_JAR = (dirname(abs_path(__FILE__)) . "/../projects/lib");
 my $LIB_PATH = (dirname(abs_path(__FILE__)) . "/../lib");
-my $TRACKER_ID = $cmd_opts{t};
-my $TRACKER_NAME = $cmd_opts{g};
 $DEBUG = 1 if defined $cmd_opts{D};
 
 # Check format of target version id
@@ -140,32 +119,16 @@ unshift(@INC, "$WORK_DIR/framework/core");
 $REPO_DIR = "$WORK_DIR/project_repos";
 $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 
-# Set the projects and repository directories to the current working directory
-my $PATCHES_DIR = "$PROJECTS_DIR/$PID/patches";
-my $FAILING_DIR = "$PROJECTS_DIR/$PID/failing_tests";
-
-my $SCRIPTS = "$WORK_DIR/../../../scripts";
 my $DEPENDENCIES = "$PROJECTS_DIR/$PID/lib/dependency";
 my $ANALYZER_OUTPUT = "$PROJECTS_DIR/$PID/analyzer_output";
 my $ARGS_FILES = "$PROJECTS_DIR/$PID/args_files";
 system("mkdir -p $ARGS_FILES");
 
--d $PATCHES_DIR or die "$PATCHES_DIR does not exist: $!";
--d $FAILING_DIR or die "$FAILING_DIR does not exist: $!";
-
 # Keep log of issues
 my $LOG = "$PROJECTS_DIR/$PID/extract_native_error_log.txt";
 
-# skipped tests saved to this file
-my $SKIPPED_TEST_FILE            = "$PROJECTS_DIR/$PID/skipped_tests";
-
 # DB_CSVs directory
 my $db_dir = $WORK_DIR;
-
-# Number of successful test runs in a row required
-my $TEST_RUNS = 2;
-# Number of maximum test runs (give up point)
-my $MAX_TEST_RUNS = 10;
 
 # Temporary directory
 my $TMP_DIR = Utils::get_tmp_dir();
@@ -190,8 +153,6 @@ foreach my $bid (@bids) {
     my %data;
     $data{$PROJECT} = $PID;
     $data{$ID} = $bid;
-    $data{$ISSUE_TRACKER_NAME} = $TRACKER_NAME;
-    $data{$ISSUE_TRACKER_ID} = $TRACKER_ID;
 
     _check_compilation($project, $bid, \%data) and
     _check_tests($project, $bid, \%data);
@@ -217,6 +178,8 @@ sub _check_compilation {
 
     my $project_path = $project->{prog_root};
 
+    # Clean up previous build files
+    system("rm -rf $ARGS_FILES/$bid");
     system("mkdir -p $ARGS_FILES/$bid");
 
     # Checkout v1
@@ -285,8 +248,8 @@ sub _check_tests {
     # Run tests with Maven and get number of failing tests
     my $log;
     $project->run_mvn_tests(\$log) or die;
-    my $mvn_failing = Utils::extract_failing_tests_mvn("$project_path/target/surefire-reports");
-    my $num_fail_mvn = scalar(@{$mvn_failing->{"classes"}}) + scalar(@{$mvn_failing->{"methods"}});
+    my @mvn_failing = Utils::extract_failing_tests_mvn("$project_path/target/surefire-reports");
+    my $num_fail_mvn = scalar(@mvn_failing);
     my $num_total_mvn = Utils::get_total_tests_mvn("$project_path/target/surefire-reports");
 
     # Extract test info from the Maven run
@@ -390,10 +353,6 @@ sub _get_bug_ids {
 =pod
 
 =head1 SEE ALSO
-
-Previous step in workflow: Manually verify that all test failures
-(failing_tests) are valid and not spurious, broken, random, or due to classpath
-issues.
 
 Next step in workflow: F<get-trigger.pl>.
 

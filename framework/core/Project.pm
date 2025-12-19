@@ -584,6 +584,9 @@ sub construct_javac_args {
 
     # Get the classpath for the dependencies
     my $classpath = "target/classes";
+    if (! $for_src) {
+        $classpath = "$classpath:target/test-classes";
+    }
     if (! -z $dependencies) {
         open my $file, '<', $dependencies;
         $classpath = "$classpath:".<$file>;
@@ -593,6 +596,11 @@ sub construct_javac_args {
 
     # Set the sourcepath
     my $sourcepath = $self->src_dir($vid);
+    if ($for_src) {
+        $sourcepath = $self->src_dir($vid);
+    } else {
+        $sourcepath = $self->test_dir($vid);
+    }
     print $args_file "-sourcepath $sourcepath\n";
 
     # Set the target
@@ -603,6 +611,10 @@ sub construct_javac_args {
         $target = "target/test-classes";
     }
     print $args_file "-d $target\n";
+
+    # Set the Java version
+    # TODO don't hardcode the version number
+    print $args_file "--release 11\n";
 
     # Set the encoding
     my $dom = XML::LibXML->load_xml(location => "$self->{prog_root}/pom.xml") or die("Cannot read the build file: $self->{prog_root}/pom.xml");
@@ -615,24 +627,33 @@ sub construct_javac_args {
     }
 
     # List the files
-    my $local_path;
-    if ($for_src) {
-        $local_path = $self->src_dir($vid);
-    } else {
-        $local_path = $self->test_dir($vid);
-    }
-    my @list = `cd $self->{prog_root}/$local_path && find . -name "*.java"`;
+    my @list = `cd $self->{prog_root}/$sourcepath && find . -name "*.java"`;
     foreach my $file (@list) {
-        $file =~ s/.\//$local_path\//;
+        $file =~ s/.\//$sourcepath\//;
         print $args_file $file;
     }
 
     # Construct any additional processing commands needed to run tests natively
-    # - Look for resources folder, which needs to be copied over
-    if (-d "$self->{prog_root}/$local_path/../resources") {
-        open my $cmd_file, '>', $cmd_output;
-        print $cmd_file "cp -r $local_path/../resources/. $target";
-        close $cmd_output;
+    # Copy over test resources
+    if (! $for_src) {
+        # Look for resources specified in the mvn build file
+        foreach my $element ($xpc->findnodes("//ns:build/ns:testResources/ns:testResource")) {
+            my($directory) = $element->getChildrenByTagName("directory");
+            my($excludes) = $element->getChildrenByTagName("excludes");
+            my @excludes = map {"--exclude=\"".$_->textContent()."\""} $excludes->getChildrenByTagName("exclude");
+            my $excludePattern = join(" ", @excludes);
+
+            open my $cmd_file, '>>', $cmd_output;
+            print $cmd_file "rsync -avm $excludePattern ".$directory->textContent()."/ $target";
+            close $cmd_output;
+        }
+
+        # Look for resources folder
+        if (-d "$self->{prog_root}/$sourcepath/../resources") {
+            open my $cmd_file, '>>', $cmd_output;
+            print $cmd_file "cp -r $sourcepath/../resources/. $target";
+            close $cmd_output;
+        }
     }
 
     close $args_output;
