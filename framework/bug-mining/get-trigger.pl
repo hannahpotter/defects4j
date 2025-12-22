@@ -27,7 +27,7 @@
 =head1 NAME
 
 get-trigger.pl -- Determines triggering tests for all reviewed version pairs in
-F<work_dir/$TAB_REV_PAIRS>, or a single version (or range).
+F<work_dir/$TAB_NATIVE>, or a single version (or range).
 
 =head1 SYNOPSIS
 
@@ -49,6 +49,12 @@ The working directory used for the bug-mining process.
 
 Only analyze this bug id. The bug_id has to follow the format B<(\d+)(:(\d+))?>.
 Per default all bug ids, listed in the active-bugs csv, are considered.
+
+=item B<-D>
+
+Debug: Enable verbose logging and do not delete the temporary check-out directory
+(optional).
+
 
 =head1 DESCRIPTION
 
@@ -223,7 +229,6 @@ foreach my $bid (@bids) {
     }
 
     # Save dependent tests to $DEP_TEST_FILE
-
     # Get contents of current dependent tests file
     my @old_dep_tests;
 
@@ -356,7 +361,7 @@ sub _add_row {
 
 =head1 SEE ALSO
 
-Previous step in workflow is F<analyze-project.pl>.
+Previous step in workflow is F<extract-native.pl>.
 
 Next step in workflow is running F<get-metadata.pl>.
 
