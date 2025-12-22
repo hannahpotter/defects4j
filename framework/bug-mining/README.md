@@ -221,7 +221,10 @@ Upon completion of this stage:
 ```
 
 If extracting the metadata for a revision fails fails, the `extract_native_error_log.txt` file under
-`$WORK_DIR/framework/projects/$PROJECT_ID` will provide logging information for the issue.
+`$WORK_DIR/framework/projects/$PROJECT_ID` will provide logging information for the issue. Some
+common problems are:
+- The original build file performs some extra steps (e.g., copying test resources) that are not
+  being captured in the extracted compile/test run information.
 
 ## Reproducing bugs
 
@@ -240,17 +243,15 @@ this directory contains the stack trace for a reproduced fault.
 - Manually analyze the stack trace for each fault and make sure this is a real
   fault reproduction, not a configuration issue (e.g., `CLASSPATH` errors or
   missing files). In case there are errors related to configurations issues, the
-  Perl module `$WORK_DIR/framework/core/Project/$PROJECT_ID.pm` and/or the
-  wrapper build file
-  `$WORK_DIR/framework/projects/$PROJECT_ID/$PROJECT_ID.build.xml` might need to
-  be manually fixed and the `analyze-project.pl` script rerun.
+  Perl module `$WORK_DIR/framework/core/Project/$PROJECT_ID.pm` might need to
+  be manually fixed and the `analyze-project.pl` and `extract-native.pl` scripts rerun.
 
 - If an invalid triggering test is encountered (e.g., due to a configuration
   issue), remove the corresponding line from the `$WORK_DIR/trigger` file, fix
   the issue, and re-execute Step 1. If there is a corresponding file for the
-  fixed revision in the `failing_tests` folder, then re-execute the analysis
-  script (remember to delete corresponding entry in the `$WORK_DIR/rev_pairs`
-  file) for this bug as well.
+  fixed revision in the `failing_tests` folder, then re-execute the `analyze-project.pl` 
+  and `extract-native.pl` scripts (remember to delete corresponding entry in the `$WORK_DIR/rev_pairs`, 
+  `$WORK_DIR/framework/projects/$PROJECT_ID/pom_fix`, and `$WORK_DIR/trigger` files) for this bug as well.
 
 
 2. Determine relevant metadata (i.e., modified classes, loaded classes, and
