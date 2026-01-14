@@ -193,7 +193,7 @@ foreach my $bid (@bids) {
 
         # Get number of failing tests -> has to be 0
         my $fail = Utils::get_failing_tests($log_file);
-        (scalar(@{$fail->{classes}}) + scalar(@{$fail->{methods}})) == 0 or die "Unexpected failing test on fixed project version (see $TMP_DIR/target/surefire-reports)!";
+        (scalar(@{$fail->{classes}}) + scalar(@{$fail->{methods}})) == 0 or die "Unexpected failing test on fixed project version (see $log_file)!";
 
         # Run tests again and monitor class loader
         my $loaded = $project->monitor_test($test, "${bid}f", "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/source_v2_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH);
@@ -307,6 +307,8 @@ sub _export_relevant_tests {
     my @relevant = ();
 
     # Iterate over all tests and determine whether or not a test is relevant
+    # TODO this should be updated to look more like it did before (this will happen somewhere else too)
+    # More like defects4j export -ptests.all
     my $test_file = "$ARGS_FILES/$bid/test_info/testsuites.txt";
     open my $fh, '<', $test_file  or die "Cannot open file $test_file!";
     my @all_tests = <$fh>;
