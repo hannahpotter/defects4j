@@ -1,23 +1,22 @@
 # This file lists rules, intended to fix plugin values in pom files.
 #
-# Each row must have the following format: <PLUGIN/DEPENDENCY><groupId>,<artifactId>,<childPath>,<replaceValue>,<condition>. 
+# Each row must have the following format: <PLUGIN/DEPENDENCY><groupId>,<artifactId>,<childPath>,<replaceValue>. 
 # <PLUGIN/DEPENDENCY> indicates if the rule applies to plugins or dependencies.
 # <groupId>, <artifactId>, and <childPath> in
 # each row form an element path in the syntax used by XML::LibXML and the value to be
 # set at that path. All child nodes at the path are removed and replaced with a text node with the <replaceValue>. 
-# <condition> indicates if the fix should only be applied conditionally.
 # Rows starting with '#' are ignored.
 # See https://grantm.github.io/perl-libxml-by-example/xpath.html for examples of paths and a sandbox to test out queries.
 #
-PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,version,3.8.0,NONE
-PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,configuration/release,11,NONE
-PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,configuration/source,11,NONE
-PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,configuration/target,11,NONE
+PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,version,3.8.0
+PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,configuration/release,11
+PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,configuration/source,11
+PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,configuration/target,11
 # org.apache.felix:maven-bundle-plugin version 5.1.9 works with Java 11
-PLUGIN,org.apache.felix,maven-bundle-plugin,version,5.1.9,bundle
+PLUGIN,org.apache.felix,maven-bundle-plugin,version,5.1.9
 # org.apache.maven.plugins:maven-surefire-plugin version 2.20.1 doesn't work with Java 11 (2.21.0 does)
-PLUGIN,org.apache.maven.plugins,maven-surefire-plugin,version,2.21.0,surefire
+PLUGIN,org.apache.maven.plugins,maven-surefire-plugin,version,2.21.0
 # org.powermock:powermock-api-easymock,powermock-module-junit4 version 2.0.2 has some support for Java 11; org.easymock:easymock version 4.0.1 is compatible with this powermock version
-DEPENDENCY,org.powermock,powermock-api-easymock,version,2.0.2,powermock
-DEPENDENCY,org.powermock,powermock-module-junit4,version,2.0.2,powermock
-DEPENDENCY,org.easymock,easymock,version,4.0.1,powermock
+DEPENDENCY,org.powermock,powermock-api-easymock,version,2.0.2
+DEPENDENCY,org.powermock,powermock-module-junit4,version,2.0.2
+DEPENDENCY,org.easymock,easymock,version,4.0.1

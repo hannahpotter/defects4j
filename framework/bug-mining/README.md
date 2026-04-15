@@ -159,14 +159,8 @@ If the build of a revision fails, the `analyze_project_error_log.txt` file under
 `$WORK_DIR/framework/projects/$PROJECT_ID` will provide logging information for the issue.
 If there is an issue with pom properties, edit `fix_pom_properties.patterns`.
 If there is an issue with pom plugins, edit `fix_pom_config.patterns`.
-- For issues with pom plugins, if the fix should only be applied conditionally (i.e. only applied if a specific
-  error occurs):
-  1. Add the pattern to `fix_pom_config.patterns` with a descriptive condition identifier.
-  2. Use the same condition identifier to update `log_fix.patterns` with a pattern to look for in the error logs.
-  3. Use the same condition identifier to update `DB.pm` with the additional column and leave a comment describing the issue.
-  4. Update `$WORK_DIR/framework/projects/$PROJECT_ID/pom_fix` by adding the appropriate header and `-` default values to all rows.
 
-Once a fix has been made, remove the related bug entry from `$WORK_DIR/rev_pairs` and `$WORK_DIR/framework/projects/$PROJECT_ID/pom_fix` and rerun `analyze_project.pl` with `-b <bug_id>`.
+Once a fix has been made, remove the related bug entry from `$WORK_DIR/rev_pairs` and rerun `analyze_project.pl` with `-b <bug_id>`.
 
 Upon completion of this stage:
   - Inspect all stack traces in the files that are
@@ -250,8 +244,8 @@ this directory contains the stack trace for a reproduced fault.
   issue), remove the corresponding line from the `$WORK_DIR/trigger` file, fix
   the issue, and re-execute Step 1. If there is a corresponding file for the
   fixed revision in the `failing_tests` folder, then re-execute the `analyze-project.pl` 
-  and `extract-native.pl` scripts (remember to delete corresponding entry in the `$WORK_DIR/rev_pairs`, 
-  `$WORK_DIR/framework/projects/$PROJECT_ID/pom_fix`, and `$WORK_DIR/trigger` files) for this bug as well.
+  and `extract-native.pl` scripts (remember to delete corresponding entry in the `$WORK_DIR/rev_pairs`
+  and `$WORK_DIR/trigger` files) for this bug as well.
 
 
 2. Determine relevant metadata (i.e., modified classes, loaded classes, and
@@ -351,6 +345,6 @@ Terms commonly used in Defects4J
   systems, there are some other scripts that are Git dependent.
 - If a project uses more than one issue tracker only one can be mined.
 - Although the `Mockito` project in `Defects4J` database uses
-  [Gradle](https://gradle.org/) as its build system, the current bug-mining
-  framework only supports [Apache Ant](https://ant.apache.org/) and
-  [Apache Maven](https://maven.apache.org/).
+  [Gradle](https://gradle.org/) as its build system and some earlier `Defects4J` 
+  projects (version 3 and earlier) use [Apache Ant](https://ant.apache.org/), 
+  the current bug-mining framework only supports [Apache Maven](https://maven.apache.org/).

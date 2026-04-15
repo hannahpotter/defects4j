@@ -150,8 +150,6 @@ sub _init_version {
         $project->{prog_root} = $work_dir;
     }
 
-    system("mkdir -p $ANALYZER_OUTPUT/$bid");
-
     $project->initialize_revision($rev_id, "${vid}");
 
     return ($rev_id, $project->src_dir("${vid}"), $project->test_dir("${vid}"));
@@ -172,7 +170,7 @@ sub _init_maven {
     # Update the pom.xml to update pom elements.
     Utils::fix_dependencies("$work_dir/pom.xml", "$UTIL_DIR/fix_dependency_urls.patterns", 0);
     Utils::fix_dependencies("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_declarations.patterns", 1);
-    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_properties.patterns", "$UTIL_DIR/fix_pom_config.patterns", {});
+    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_properties.patterns", "$UTIL_DIR/fix_pom_config.patterns");
 
     # Check for dependencies that can't be resolved
     my $check_dep = "cd $work_dir && mvn dependency:resolve";

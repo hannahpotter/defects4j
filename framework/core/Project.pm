@@ -361,40 +361,6 @@ sub sanity_check {
 
 =pod
 
-  $project->get_conditional_pom_fixes(bid)
-
-Gets the conditional pom issues relevant to project and bug id (C<bid>)
-
-=cut
-
-sub get_conditional_pom_fixes {
-    @_ == 2 or die $ARG_ERROR;
-    my ($self, $bid) = @_;
-    my $pid = $self->{pid};
-    my $db_dir = "$PROJECTS_DIR/$pid";
-
-    # Get database handle
-    my $dbh_pom = DB::get_db_handle($TAB_POM_FIX, $db_dir);
-
-    # Select the pom issues relevant to this bug id
-    my $sth = $dbh_pom->prepare("SELECT * FROM $TAB_POM_FIX WHERE $PROJECT=? AND $ID=?") or die $dbh_pom->errstr;
-    $sth->execute($pid, $bid) or die "Cannot query database: $dbh_pom->errstr";
-    my $row;
-    if ($sth->rows == 0) {
-        $row = {};
-    } elsif ($sth->rows == 1) {
-        $row = $sth->fetchrow_hashref();
-    } else {
-        die "Multiple entries for $pid, $bid in $TAB_POM_FIX";
-    }
-
-    $sth->finish();
-    $dbh_pom->disconnect();
-    return $row;
-}
-
-=pod
-
   $project->checkout_vid(vid [, work_dir, is_bugmine])
 
 Checks out the provided version id (C<vid>) to F<work_dir>, and tags the buggy AND
@@ -504,8 +470,7 @@ sub checkout_vid {
         Utils::fix_dependencies("$work_dir/$build_file", "$UTIL_DIR/fix_dependency_urls.patterns", 0) if -e "$work_dir/$build_file";
         Utils::fix_dependencies("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_dependency_declarations.patterns", 1) if -e "$work_dir/pom.xml";
     }
-    my $conditional_fixes = $self->get_conditional_pom_fixes($bid);
-    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_properties.patterns", "$UTIL_DIR/fix_pom_config.patterns", $conditional_fixes) if -e "$work_dir/pom.xml";
+    Utils::fix_pom("$work_dir/pom.xml", "$UTIL_DIR/fix_pom_properties.patterns", "$UTIL_DIR/fix_pom_config.patterns") if -e "$work_dir/pom.xml";
 
     # Commit and tag the fixed program version
     $tag_name = Utils::tag_prefix($pid, $bid) . $TAG_FIXED;

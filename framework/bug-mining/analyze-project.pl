@@ -75,19 +75,15 @@ or (if -b is specified) for a subset of candidates:
 
 =item 1) Checkout fixed revision.
 
-=item 2) Compile src and test. If compilation fails, fixes will be attempted until one
-         is successful or there are no more fixes to try.
+=item 2) Compile src and test.
 
 =item 3) Apply src patch (fixed -> buggy).
 
-=item 4) Compile src and test. If compilation fails, fixes will be attempted until one
-         is successful or there are no more fixes to try.
+=item 4) Compile src and test.
 
 =item 5) Checkout fixed version.
 
 =item 6) Run tests and log failing tests to F<C<PROJECTS_DIR>/<PID>/failing_tests>.
-         If there are test errors, fixes will be attempted until one is successful
-         or there are no more fixes to try.
 
 =item 7) Exclude failing tests, recompile and rerun. This is repeated until
          there are no more failing tests in F<$TEST_RUNS> consecutive
@@ -99,9 +95,6 @@ or (if -b is specified) for a subset of candidates:
 The result for each individual step is stored in F<C<work_dir>/$TAB_REV_PAIRS>.
 For each steps the output table contains a column, indicating the result of the
 the step or '-' if the step was not applicable.
-The result for attempted fixes is stored in F<C<work_dir>/framework/projects/C<project_id>/$TAB_POM_FIX>.
-For each relevant attempted fix, the output table contains a column indicating the result of the attempt
-or '-' if the attempt was not applicable.
 
 =cut
 use warnings;
@@ -172,9 +165,7 @@ $project->{prog_root} = $TMP_DIR;
 # Get database handle for results
 my $dbh_revs = DB::get_db_handle($TAB_REV_PAIRS, $db_dir);
 my $dbh_bootstrap = DB::get_db_handle($TAB_BOOTSTRAP, $db_dir);
-my $dbh_pom = DB::get_db_handle($TAB_POM_FIX, "$PROJECTS_DIR/$PID");
 my @REV_COLS = DB::get_tab_columns($TAB_REV_PAIRS) or die;
-my @POM_COLS = DB::get_tab_columns($TAB_POM_FIX) or die;
 
 # Clean up previous log files
 system("rm -f $LOG");
@@ -189,24 +180,18 @@ foreach my $bid (@bids) {
     $rev_data{$ISSUE_TRACKER_NAME} = $TRACKER_NAME;
     $rev_data{$ISSUE_TRACKER_ID} = $TRACKER_ID;
 
-    # Keep track of pom fix data
-    my %pom_data;
-    $pom_data{$PROJECT} = $PID;
-    $pom_data{$ID} = $bid;
-
     # Clean previous results
     my $v2 = $project->lookup("${bid}f");
     `rm $FAILING_DIR/$v2` if -e "$FAILING_DIR/$v2";
 
-    _check_compilation($project, $bid, \%rev_data, \%pom_data) and
-    _export_tests($project, $bid, \%rev_data, \%pom_data);
+    _check_compilation($project, $bid, \%rev_data) and
+    _export_tests($project, $bid, \%rev_data);
 
     # Add data set to result file
-    _add_rows(\%rev_data, \%pom_data);
+    _add_rows(\%rev_data);
 }
 $dbh_revs->disconnect();
 $dbh_bootstrap->disconnect();
-$dbh_pom->disconnect();
 system("rm -rf $TMP_DIR") unless $DEBUG;
 
 #
@@ -215,7 +200,7 @@ system("rm -rf $TMP_DIR") unless $DEBUG;
 # Returns 1 on success, 0 otherwise
 #
 sub _check_compilation {
-    my ($project, $bid, $rev_data, $pom_data) = @_;
+    my ($project, $bid, $rev_data) = @_;
 
     # Lookup revision ids
     my $v1  = $project->lookup("${bid}b");
@@ -227,20 +212,20 @@ sub _check_compilation {
     $project->checkout_vid("${bid}b", $TMP_DIR, 1) == 1 or die;
 
     # Check that the v1 and t2 compile with maven
-    my $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, "Error compiling source v1 for bug ${bid}");
+    my $ret = _try_command($project, \&Project::mvn_compile, "Error compiling source v1 for bug ${bid}");
     _add_bool_result($rev_data, $COMP_V1, $ret) or return 0;
 
-    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile, "Error compiling tests v1t2 for bug ${bid}");
+    $ret = _try_command($project, \&Project::mvn_test_compile, "Error compiling tests v1t2 for bug ${bid}");
     _add_bool_result($rev_data, $COMP_T2V1, $ret) or return 0;
 
     # Checkout v2
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
 
     # Check that the v2 and t2 compile with maven
-    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_compile, "Error compiling source v2 for bug ${bid}");
+    $ret = _try_command($project, \&Project::mvn_compile, "Error compiling source v2 for bug ${bid}");
     _add_bool_result($rev_data, $COMP_V2, $ret) or return 0;
 
-    $ret = _try_command($bid, $project, $pom_data, \&Project::mvn_test_compile,  "Error compiling tests v2t2 for bug ${bid}");
+    $ret = _try_command($project, \&Project::mvn_test_compile,  "Error compiling tests v2t2 for bug ${bid}");
     _add_bool_result($rev_data, $COMP_T2V2, $ret) or return 0;
 }
 
@@ -250,7 +235,7 @@ sub _check_compilation {
 # Returns 1 on success, 0 otherwise
 #
 sub _export_tests {
-    my ($project, $bid, $rev_data, $pom_data) = @_;
+    my ($project, $bid, $rev_data) = @_;
 
     my $project_path = $project->{prog_root};
 
@@ -268,7 +253,7 @@ sub _export_tests {
         $project->mvn_test_compile();
 
         # Run t2 tests with maven and get the number of failing tests
-        my $ret = _try_command($bid, $project, $pom_data, \&Project::run_mvn_tests, "Error running tests for bug ${bid}");
+        my $ret = _try_command($project, \&Project::run_mvn_tests, "Error running tests for bug ${bid}");
         if (! $ret) {
             $rev_data->{$FAIL_T2V2} = '-';
             return 0;
@@ -302,53 +287,19 @@ sub _export_tests {
 }
 
 #
-# Attempts the maven command. If there is an error, search the 
-# log for problematic error and attempt a fix until a successful change
-# is found or all patterns have been tried.
+# Attempts the maven command. Log any errors.
 # 
 sub _try_command {
-    @_ == 5 or die $ARG_ERROR;
-    my ($bid, $project, $pom_data, $mvn_cmd, $err_msg) = @_;
-    my $project_path = $project->{prog_root};
+    @_ == 3 or die $ARG_ERROR;
+    my ($project, $mvn_cmd, $err_msg) = @_;
 
-    my $original_log;
-    my $original_ret = $mvn_cmd->($project, \$original_log);
-    my $failed_attempt_log = "--- Original failed attempt\n$original_log";
-    if (! $original_ret) {
-        open(IN, "<$UTIL_DIR/log_fix.patterns") or die("Cannot read log pattern file");
-        my @patterns = <IN>;
-        close(IN);
-        # Read all elements; skip comments
-        foreach my $l (@patterns) {
-            $l =~ /^\s*#/ and next;
-            chomp($l);
-            $l =~ /([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <issue_name>,<pattern>)");
-            my ($issue_name, $pattern) = split(",", $l);
-            # If the pattern is present in the log, attempt the fix for the issue name
-            if (${original_log} =~ /$pattern/) {
-                $pom_data->{$issue_name} = 1; 
-                Utils::fix_pom("$project_path/pom.xml", "$UTIL_DIR/fix_pom_properties.patterns", "$UTIL_DIR/fix_pom_config.patterns", $pom_data) if -e "$project_path/pom.xml";
-
-                my $attempt_log;
-                my $attempt_ret = $mvn_cmd->($project, \$attempt_log);
-                # If the fix works, make sure that the copy of dependencies is up to date
-                if ($attempt_ret) {
-                    $project->run_mvn_copy_dependencies($DEPENDENCIES);
-                    return $attempt_ret;
-                } else {
-                    $pom_data->{$issue_name} = 0;
-                    $failed_attempt_log = "--- Failed attempt for $issue_name fix\n${attempt_log}\n$failed_attempt_log";
-                }
-            }
-        } 
-
-        # No fix was found
-        system("echo \"--------------------- $err_msg --------------------- \n${failed_attempt_log}\n\n\" >> $LOG");
-        return $original_ret; 
+    my $log;
+    my $ret = $mvn_cmd->($project, \$log);
+    if (! $ret) {
+        system("echo \"--------------------- $err_msg --------------------- \n${log}\n\n\" >> $LOG");
     }
 
-    # Command works without any fixes needed
-    return $original_ret;
+    return $ret;
 }
 
 #
@@ -363,7 +314,7 @@ sub _add_bool_result {
 # Add a rows to the database tables
 #
 sub _add_rows {
-    my ($rev_data, $pom_data) = @_;
+    my ($rev_data) = @_;
 
     # Save the revision results
     my @rev_tmp;
@@ -372,14 +323,6 @@ sub _add_rows {
     }
     my $rev_row = join(",", @rev_tmp);
     $dbh_revs->do("INSERT INTO $TAB_REV_PAIRS VALUES ($rev_row)");
-
-    # Save the pom fix results
-    my @pom_tmp;
-    foreach (@POM_COLS) {
-        push (@pom_tmp, $dbh_pom->quote((defined $pom_data->{$_}? $pom_data->{$_} : "-")));
-    }
-    my $pom_row = join(",", @pom_tmp);
-    $dbh_pom->do("INSERT INTO $TAB_POM_FIX VALUES ($pom_row)");
 }
 
 #

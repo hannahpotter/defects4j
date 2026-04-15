@@ -431,8 +431,8 @@ Parses the F<build_file> and performs necessary replacements.
 
 =cut
 sub fix_pom {
-    @_ == 4 || die $ARG_ERROR;
-    my ($build_file, $pattern_file, $plugin_file, $conditional_fixes) = @_;
+    @_ == 3 || die $ARG_ERROR;
+    my ($build_file, $pattern_file, $plugin_file) = @_;
 
     my $dom = XML::LibXML->load_xml(location => $build_file) or die("Cannot read the build file: $build_file");
     my $root_ns = $dom->documentElement->namespaceURI;
@@ -464,7 +464,7 @@ sub fix_pom {
     foreach my $l (@patterns) {
         $l =~ /^\s*#/ and next;
         chomp($l);
-        $l =~ /([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <PLUGIN/DEPENDENCY>,<groupId>,<artifactId>,<childPath>,<newXMLElement>,<condition>)");
+        $l =~ /([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)/ or die("Row in pattern file in wrong format: $l (expected: <PLUGIN/DEPENDENCY>,<groupId>,<artifactId>,<childPath>,<newXMLElement>)");
         my ($change_type, $updateGroupId, $updateArtifactId, $updateChildPath, $change, $condition) = split(",", $l);
         
         my $parent_find;
@@ -484,13 +484,6 @@ sub fix_pom {
             $element_id = "dependency";
         } else {
             die("Row in pattern file is wrong format: $l (first element expected to be PLUGIN or DEPENDENCY)");
-        }
-
-
-        # If this is a conditional update, skip if the condition is not met
-        my $applies = $conditional_fixes->{$condition};
-        if (!($condition eq "NONE") && !$applies) {
-            next;
         }
 
         my $plugin_or_dependency;

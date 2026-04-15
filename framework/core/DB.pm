@@ -92,16 +92,6 @@ our $TAB_NATIVE = ($ENV{TAB_NATIVE} or "native");
 
 =pod
 
-=item C<TAB_POM_FIX>
-
-The name of the database table for fixing pom issues that can't be determined just from looking at the pom (I<pom_fix>)
-
-=cut
-
-our $TAB_POM_FIX = ($ENV{TAB_POM_FIX} or "pom_fix");
-
-=pod
-
 =item C<TAB_TRIGGER>
 
 The name of the database table for the results of analyzing triggering tests (I<trigger>)
@@ -199,11 +189,6 @@ our $FAIL_T2V2     = "num_fail_t2v2";
 # Additional columns for TAB_NATIVE
 our $COMPARE_TEST = "compare_test";
 
-# Additional columns for TAB_POM_FIX
-our $BUNDLE = "bundle";
-our $SUREFIRE = "surefire";
-our $POWERMOCK = "powermock";
-
 # Additional columns of TAB_TRIGGER
 our $FAIL_V2       = "num_fail_t2v2";
 our $FAIL_C_V1     = "num_fail_classes_t2v1";
@@ -248,8 +233,6 @@ $TAB_BOOTSTRAP => [$PROJECT, $ID, $DIFF_SRC, $DIFF_TEST, $BOOTSTRAPPED],
 $TAB_REV_PAIRS => [$PROJECT, $ID, $ISSUE_TRACKER_NAME, $ISSUE_TRACKER_ID, $COMP_V2, $COMP_T2V2, $FAIL_T2V2, $COMP_V1, $COMP_T2V1],
 # TAB_NATIVE
 $TAB_NATIVE => [$PROJECT, $ID, $COMP_V2, $COMP_T2V2, $COMP_V1, $COMP_T2V1, $COMPARE_TEST],
-# TAB_POM_FIX
-$TAB_POM_FIX => [$PROJECT, $ID, $BUNDLE, $SUREFIRE, $POWERMOCK],
 # Table TAB_TRIGGER
 $TAB_TRIGGER => [$PROJECT, $ID, $FAIL_V2, $FAIL_C_V1, $FAIL_M_V1, $PASS_ISO_V2, $FAIL_ISO_V1],
 # Table TAB_BUG_DETECTION
@@ -269,7 +252,6 @@ $TAB_FIX => [$PROJECT, $ID, $TEST_SUITE, $TEST_ID, $NUM_UNCOMPILABLE_TESTS, $NUM
 our %PRIMARY_KEYS = (
     $TAB_BOOTSTRAP => 2,
     $TAB_REV_PAIRS => 2,
-    $TAB_POM_FIX => 2,
     $TAB_NATIVE => 2,
     $TAB_TRIGGER => 2,
     $TAB_BUG_DETECTION => 4,
@@ -283,7 +265,6 @@ our @EXPORT = qw(
 $DB_DIR
 $TAB_BOOTSTRAP
 $TAB_REV_PAIRS
-$TAB_POM_FIX
 $TAB_NATIVE
 $TAB_TRIGGER
 $TAB_BUG_DETECTION
@@ -308,9 +289,6 @@ $COMP_T2V1
 $COMPARE_TEST
 $MIN_SRC
 $REVIEW_TESTS
-$BUNDLE
-$SUREFIRE
-$POWERMOCK
 $FAIL_V2
 $FAIL_C_V1
 $FAIL_M_V1
