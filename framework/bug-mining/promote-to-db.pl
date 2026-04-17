@@ -30,18 +30,21 @@ promote-to-db.pl -- Promote reproducible and minimized bugs and their metadata
 to the main Defects4J database. In detail, this script copies over the following
 metadata:
   - framework/core/Project/<PROJECT_ID>.pm
-  - framework/projects/<PROJECT_ID>/build_files
+  - framework/projects/<PROJECT_ID>/all_testcases
+  - framework/projects/<PROJECT_ID>/all_testsuites
+  - framework/projects/<PROJECT_ID>/build_args
   - framework/projects/<PROJECT_ID>/failing_tests
+  - framework/projects/<PROJECT_ID>/junit_args
   - framework/projects/<PROJECT_ID>/lib
   - framework/projects/<PROJECT_ID>/loaded_classes
   - framework/projects/<PROJECT_ID>/modified_classes
   - framework/projects/<PROJECT_ID>/patches
+  - framework/projects/<PROJECT_ID>/preexec_cmds
   - framework/projects/<PROJECT_ID>/relevant_tests
   - framework/projects/<PROJECT_ID>/trigger_tests
-  - framework/projects/<PROJECT_ID>/build.xml.patch
-  - framework/projects/<PROJECT_ID>/<PROJECT_ID>.build.xml
   - framework/projects/<PROJECT_ID>/$BUGS_CSV_ACTIVE
-  - framework/projects/<PROJECT_ID>/$BUGS_CSV_DEPRECATED	
+  - framework/projects/<PROJECT_ID>/$BUGS_CSV_DEPRECATED
+  - framework/projects/<PROJECT_ID>/$JUNIT_VERSION_FILE	
   - framework/projects/<PROJECT_ID>/$LAYOUT_FILE
   - project_repos/<PROJECT_NAME>.git
 and updates the project_repos/README file with information of when the project
@@ -122,12 +125,17 @@ my $project = Project::create_project($PID);
 my $dbh_trigger = DB::get_db_handle($TAB_TRIGGER, $WORK_DIR);
 
 my @rev_specific_files = ("failing_tests/<rev>", "build_files/<rev>");
-my @id_specific_files = ("loaded_classes/<id>.src", "loaded_classes/<id>.test",
-                            "modified_classes/<id>.src", "modified_classes/<id>.test",
-                            "patches/<id>.src.patch", "patches/<id>.test.patch",
-                            "trigger_tests/<id>", "relevant_tests/<id>");
-my @generic_files_and_directories_to_replace = ("build.xml.patch", "${PID}.build.xml", "lib", $BUGS_CSV_DEPRECATED);
-my @generic_files_to_append = ("dependent_tests", $LAYOUT_FILE);
+my @id_specific_files = ("all_testcases/<id>.src", "all_testcases/<id>.test",
+                         "all_testsuites/<id>.src", "all_testsuites/<id>.test",
+                         "build_args/<id>.src", "build_args/<id>.test",
+                         "failing_tests/<id>.src", "failing_tests/<id>.test",
+                         "junit_args/<id>.src", "junit_args/<id>.test",
+                         "loaded_classes/<id>.src", "loaded_classes/<id>.test",
+                         "modified_classes/<id>.src", "modified_classes/<id>.test",
+                         "patches/<id>.src.patch", "patches/<id>.test.patch",
+                         "trigger_tests/<id>", "relevant_tests/<id>");
+my @generic_files_and_directories_to_replace = ("lib", $BUGS_CSV_DEPRECATED);
+my @generic_files_to_append = ("dependent_tests", $JUNIT_VERSION_FILE, $LAYOUT_FILE);
 
 my @ids = _get_bug_ids($BID);
 foreach my $id (@ids) {
