@@ -147,8 +147,6 @@ Utils::exec_cmd("./create-project.pl -p $PID"
 if (-e "$CORE_DIR/Project/$PID.pm") {
     # Override project module
     system("cp $CORE_DIR/Project/$PID.pm $WORK_DIR/framework/core/Project/$PID.pm");
-    # Override project build file
-    system("cp $PROJECTS_DIR/$PID/$PID.build.xml $WORK_DIR/framework/projects/$PID/$PID.build.xml");
 }
 
 if (defined($QUERY)) {

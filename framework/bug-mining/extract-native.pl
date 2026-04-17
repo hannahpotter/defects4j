@@ -124,11 +124,6 @@ my $PREEXEC_CMDS = "$PROJECTS_DIR/$PID/preexec_cmds";
 my $JUNIT_ARGS = "$PROJECTS_DIR/$PID/junit_args";
 my $ALL_TESTSUITES = "$PROJECTS_DIR/$PID/all_testsuites";
 my $ALL_TESTCASES = "$PROJECTS_DIR/$PID/all_testcases";
-system("mkdir -p $BUILD_ARGS");
-system("mkdir -p $PREEXEC_CMDS");
-system("mkdir -p $JUNIT_ARGS");
-system("mkdir -p $ALL_TESTSUITES");
-system("mkdir -p $ALL_TESTCASES");
 
 # Keep log of issues
 my $LOG = "$PROJECTS_DIR/$PID/extract_native_error_log.txt";

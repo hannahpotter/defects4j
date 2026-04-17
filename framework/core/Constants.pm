@@ -315,6 +315,10 @@ our $LAYOUT_FILE = "dir-layout.csv";
 # Filename for directory junit versions csv
 our $JUNIT_VERSION_FILE = "junit-version.csv";
 
+# Columns in junit-version csv
+our $JUNIT_CSV_BUGID = "bug.id";
+our $JUNIT_CSV_VERSION = "junit.version";
+
 # Filenames for bugs csv files
 our $BUGS_CSV_ACTIVE = "active-bugs.csv";
 our $BUGS_CSV_DEPRECATED = "deprecated-bugs.csv";
@@ -401,7 +405,11 @@ $TAG_BUGGY
 $TAG_PRE_FIX
 
 $LAYOUT_FILE
+
 $JUNIT_VERSION_FILE
+
+$JUNIT_CSV_BUGID
+$JUNIT_CSV_VERSION
 
 $BUGS_CSV_ACTIVE
 $BUGS_CSV_DEPRECATED

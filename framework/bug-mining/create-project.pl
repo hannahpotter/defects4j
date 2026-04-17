@@ -57,13 +57,11 @@ TODO: Currently, this has to be a git repository.
 
 =head1 DESCRIPTION
 
-Provides templates for the Perl module and wrapper build file for a new project:
+Provides templates for the Perl module for a new project:
 
 =over 4
 
 =item 1) F<"work_dir"/framework/core/Project/"project_id".pm>
-
-=item 2) F<"work_dir"/framework/projects/"project_id"/"project_id".build.xml>
 
 =back
 
@@ -91,12 +89,8 @@ my $WORK_DIR = $cmd_opts{w};
 my $URL = $cmd_opts{r};
 
 my $module_template = "$CORE_DIR/Project/template";
-my $build_template  = "$SCRIPT_DIR/projects/template.build.xml";
-my $build_patch  = "$SCRIPT_DIR/projects/build.xml.patch";
 
 my $module_file = "$WORK_DIR/framework/core/Project/$PID.pm";
-my $build_file  = "$WORK_DIR/framework/projects/$PID/$PID.build.xml";
-my $build_patch_file  = "$WORK_DIR/framework/projects/$PID/build.xml.patch";
 
 # Directory to which the remote repository is cloned.
 my $repo_dir    = "$WORK_DIR/project_repos";
@@ -107,8 +101,13 @@ my $project_dir = "$WORK_DIR/framework/projects/$PID";
 my $ISSUES_DIR = "$WORK_DIR/issues";
 
 # Directories for meta data
-my $PATCH_DIR   = "$project_dir/patches";
+my $TESTCASES_DIR = "$project_dir/all_testcases";
+my $TESTSUITES_DIR = "$project_dir/all_testsuites";
+my $BUILD_ARGS_DIR = "$project_dir/build_args";
 my $FAILING_DIR = "$project_dir/failing_tests";
+my $JUNIT_ARGS_DIR = "$project_dir/junit_args";
+my $PATCH_DIR   = "$project_dir/patches";
+my $PREEXEC_DIR = "$project_dir/preexec_cmds";
 my $TRIGGER_DIR = "$project_dir/trigger_tests";
 my $RELEVANT_DIR = "$project_dir/relevant_tests";
 my $MOD_CLASSES = "$project_dir/modified_classes";
@@ -117,7 +116,7 @@ my $REL_CLASSES = "$project_dir/loaded_classes";
 # Directory for the perl module
 my $core_dir = "$WORK_DIR/framework/core/Project";
 
-system("mkdir -p $project_dir $core_dir $ISSUES_DIR $PATCH_DIR $FAILING_DIR $TRIGGER_DIR $RELEVANT_DIR $MOD_CLASSES $REL_CLASSES");
+system("mkdir -p $project_dir $core_dir $ISSUES_DIR $TESTCASES_DIR $TESTSUITES_DIR $BUILD_ARGS_DIR $FAILING_DIR $JUNIT_ARGS_DIR $PATCH_DIR $PREEXEC_DIR $TRIGGER_DIR $RELEVANT_DIR $MOD_CLASSES $REL_CLASSES");
 
 # Create active-bugs csv and print header
 my $active_header = $BUGS_CSV_BUGID.",".$BUGS_CSV_COMMIT_BUGGY.",".$BUGS_CSV_COMMIT_FIXED.",".$BUGS_CSV_ISSUE_ID.",".$BUGS_CSV_ISSUE_URL;
@@ -127,32 +126,15 @@ system("echo $active_header > $project_dir/$BUGS_CSV_ACTIVE");
 my $deprecated_header = $active_header.",".$BUGS_CSV_DEPRECATED_WHEN.",".$BUGS_CSV_DEPRECATED_WHY;
 system("echo $deprecated_header > $project_dir/$BUGS_CSV_DEPRECATED");
 
+# Create junit-version csv and print header
+my $junit_header = $JUNIT_CSV_BUGID.",".$JUNIT_CSV_VERSION;
+system("echo $junit_header > $project_dir/$JUNIT_VERSION_FILE");
+
 # Copy module template and set project id and name
 open(IN, "<$module_template") or die "Cannot open template file: $!";
 open(OUT, ">$module_file") or die "Cannot open module file: $!";
 while(<IN>) {
     s/<PID>/$PID/g;
-    s/<PROJECT_NAME>/$NAME/g;
-    print(OUT $_);
-}
-close(IN);
-close(OUT);
-
-# Copy wrapper build file template and set project id
-open(IN, "<$build_template") or die "Cannot open template file: $!";
-open(OUT, ">$build_file") or die "Cannot open build file: $!";
-while(<IN>) {
-    s/<PID>/$PID/g;
-    s/<PROJECT_NAME>/$NAME/g;
-    print(OUT $_);
-}
-close(IN);
-close(OUT);
-
-# Copy patch build file and set project id
-open(IN, "<$build_patch") or die "Cannot open build patch file: $!";
-open(OUT, ">$build_patch_file") or die "Cannot open build patch file: $!";
-while(<IN>) {
     s/<PROJECT_NAME>/$NAME/g;
     print(OUT $_);
 }
