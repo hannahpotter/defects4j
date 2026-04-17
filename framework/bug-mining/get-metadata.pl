@@ -138,8 +138,10 @@ my $MODIFIED = "$PROJECT_DIR/modified_classes";
 my $TRIGGER = "$PROJECT_DIR/trigger_tests";
 my $RELEVANT= "$PROJECT_DIR/relevant_tests";
 
-my $DEPENDENCIES = "$PROJECT_DIR/lib/dependency";
-my $ARGS_FILES = "$PROJECT_DIR/args_files";
+my $BUILD_ARGS = "$PROJECTS_DIR/$PID/build_args";
+my $PREEXEC_CMDS = "$PROJECTS_DIR/$PID/preexec_cmds";
+my $JUNIT_ARGS = "$PROJECTS_DIR/$PID/junit_args";
+my $ALL_TESTSUITES = "$PROJECTS_DIR/$PID/all_testsuites";
 
 # DB_CSVs directory
 my $db_dir = $WORK_DIR;
@@ -176,12 +178,8 @@ foreach my $bid (@bids) {
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) or die;
 
     # Compile sources and tests
-    $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES) or die;
-    $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES) or die;
-
-    open my $version_file, '<', "$ARGS_FILES/$bid/test_info/junit_version.txt";
-    my $junit_version = <$version_file>;
-    close $version_file;
+    $project->compile("$BUILD_ARGS/$bid.src") or die;
+    $project->compile("$BUILD_ARGS/$bid.test") or die;
 
     my %src;
     my %test;
@@ -189,14 +187,14 @@ foreach my $bid (@bids) {
         my $log_file = "$TMP_DIR/tests.fail";
 
         # Run triggering test and verify that it passes
-        $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/source_v2_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH, "$ARGS_FILES/$bid/test_info/testsuites.txt", $log_file, 0, $test);
+        $project->run_tests($bid, "$JUNIT_ARGS/$bid", "$PREEXEC_CMDS/$bid.src", "$PREEXEC_CMDS/$bid.test", $TEST_JAR, "$ALL_TESTSUITES/$bid", $log_file, 0, $test);
 
         # Get number of failing tests -> has to be 0
         my $fail = Utils::get_failing_tests($log_file);
         (scalar(@{$fail->{classes}}) + scalar(@{$fail->{methods}})) == 0 or die "Unexpected failing test on fixed project version (see $log_file)!";
 
         # Run tests again and monitor class loader
-        my $loaded = $project->monitor_test($test, "${bid}f", "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/source_v2_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH);
+        my $loaded = $project->monitor_test($test, "${bid}f", "$JUNIT_ARGS/$bid", "$PREEXEC_CMDS/$bid.src", "$PREEXEC_CMDS/$bid.test");
         die unless defined $loaded;
 
         foreach (@{$loaded->{src}}) {
@@ -309,14 +307,14 @@ sub _export_relevant_tests {
     # Iterate over all tests and determine whether or not a test is relevant
     # TODO this should be updated to look more like it did before (this will happen somewhere else too)
     # More like defects4j export -ptests.all
-    my $test_file = "$ARGS_FILES/$bid/test_info/testsuites.txt";
+    my $test_file = "$ALL_TESTSUITES/$bid";
     open my $fh, '<', $test_file  or die "Cannot open file $test_file!";
     my @all_tests = <$fh>;
     close $fh;
     foreach my $test (@all_tests) {
         chomp($test);
         print(STDERR "Analyze test: $test\n");
-        my $loaded = $project->monitor_test($test, "${bid}f", "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/source_v2_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH);
+        my $loaded = $project->monitor_test($test, "${bid}f", "$JUNIT_ARGS/$bid", "$PREEXEC_CMDS/$bid.src", "$PREEXEC_CMDS/$bid.test");
         die("Failed test: $test\n") unless (defined $loaded);
 
         foreach my $class (@{$loaded->{src}}) {

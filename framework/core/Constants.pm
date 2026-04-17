@@ -312,6 +312,9 @@ our $TAG_PRE_FIX          = "PRE_FIX_REVISION";
 # Filename for directory layout csv
 our $LAYOUT_FILE = "dir-layout.csv";
 
+# Filename for directory junit versions csv
+our $JUNIT_VERSION_FILE = "junit-version.csv";
+
 # Filenames for bugs csv files
 our $BUGS_CSV_ACTIVE = "active-bugs.csv";
 our $BUGS_CSV_DEPRECATED = "deprecated-bugs.csv";
@@ -349,6 +352,9 @@ our $METADATA_DATE_FIXED = "revision.date.fixed";
 # Filenames for test results
 our $FILE_ALL_TESTS     = "all_tests";
 our $FILE_FAILING_TESTS = "failing_tests";
+
+# Foldername for compile and test dependencies where symlinks to project dependencies are stored
+our $DEPENDENCY_DIR = ".d4jlib";
 
 our @EXPORT = qw(
 $SCRIPT_DIR
@@ -395,6 +401,7 @@ $TAG_BUGGY
 $TAG_PRE_FIX
 
 $LAYOUT_FILE
+$JUNIT_VERSION_FILE
 
 $BUGS_CSV_ACTIVE
 $BUGS_CSV_DEPRECATED
@@ -428,6 +435,8 @@ $METADATA_DATE_FIXED
 
 $FILE_ALL_TESTS
 $FILE_FAILING_TESTS
+
+$DEPENDENCY_DIR
 
 $DEBUG
 );

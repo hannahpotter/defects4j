@@ -103,8 +103,9 @@ $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 my $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 my $PROJECTS_REPOS_DIR = "$WORK_DIR/project_repos";
 
-my $DEPENDENCIES = "$PROJECTS_DIR/$PID/lib/dependency";
-my $ARGS_FILES = "$PROJECTS_DIR/$PID/args_files";
+my $BUILD_ARGS = "$PROJECTS_DIR/$PID/build_args";
+my $PREEXEC_CMDS = "$PROJECTS_DIR/$PID/preexec_cmds";
+my $JUNIT_ARGS = "$PROJECTS_DIR/$PID/junit_args";
 
 # Patch
 my $PATCH_DIR = "$PROJECTS_DIR/$PID/patches";
@@ -169,7 +170,7 @@ while (1) {
     my $log;
     my $compile_log_file = "$TMP_DIR/compile-log.txt";
     system(">$compile_log_file");
-    my $ret = $project->compile("$ARGS_FILES/$BID/source_v2_args.txt", $DEPENDENCIES, \$log);
+    my $ret = $project->compile("$BUILD_ARGS/$BID.src", \$log);
     system("echo '$log' > $compile_log_file");
     unless ($ret) {
         system("cat $compile_log_file");
@@ -177,21 +178,18 @@ while (1) {
     }
     my $compile_tests_log_file = "$TMP_DIR/compile_tests-log.txt";
     system(">$compile_tests_log_file");
-    $ret = $project->compile("$ARGS_FILES/$BID/test_args.txt", $DEPENDENCIES, \$log);
+    $ret = $project->compile("$BUILD_ARGS/$BID.test", \$log);
     system("echo '$log' > $compile_tests_log_file");
     unless ($ret) {
         system("cat $compile_tests_log_file");
         next;
     }
 
-    open my $version_file, '<', "$ARGS_FILES/$BID/test_info/junit_version.txt";
-    my $junit_version = <$version_file>;
-    close $version_file;
     # Is the list of triggering test still the same?
     my $local_trigger_tests = "$TMP_DIR/trigger_tests";
     system(">$local_trigger_tests");
     # Run the relevant tests
-    $project->run_tests($junit_version, "$ARGS_FILES/$BID/test_info/args_junit.txt", "$ARGS_FILES/$BID/source_v2_cmd", "$ARGS_FILES/${BID}/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH, $relevant_tests, $local_trigger_tests);
+    $project->run_tests($BID, "$JUNIT_ARGS/$BID", "$PREEXEC_CMDS/$BID.src", "$PREEXEC_CMDS/$BID.test", $TEST_JAR, $relevant_tests, $local_trigger_tests);
 
     system("grep \"^--- \" $trigger_tests | sort > $local_trigger_tests.sorted.original");
     system("grep \"^--- \" $local_trigger_tests | sort > $local_trigger_tests.sorted.minimal");

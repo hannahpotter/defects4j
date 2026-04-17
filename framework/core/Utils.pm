@@ -1103,17 +1103,14 @@ TODO
 =cut
 
 sub mvn_extract_test_info {
-    @_ == 5 or die $ARG_ERROR;
-    my ($test_result_folder, $dependency_file, $classes_path, $test_classes_path, $output_folder) = @_;
+    @_ == 7 or die $ARG_ERROR;
+    my ($test_result_folder, $dependency_file, $classes_path, $test_classes_path, $junit_args_output, $all_testsuites_output, $all_testcases_output) = @_;
 
     ##### Extract the test results
     opendir my($result_dirhandle), $test_result_folder;
 
-    open my $test_cases, ">", "$output_folder/testcases.txt" or die "Can't open testcases output file\n";
-    open my $test_suites, ">", "$output_folder/testsuites.txt" or die "Can't open testsuites output file\n";
-    open my $failing_tests, ">", "$output_folder/failing.txt" or die "Can't open failing output file\n";
-    open my $sysout_tests, ">", "$output_folder/sysout.txt" or die "Can't open sysout output file\n";
-    open my $skipped_tests, ">", "$output_folder/skipped.txt" or die "Can't open skipped output file\n";
+    open my $test_suites, ">", "$all_testsuites_output" or die "Can't open testsuites output file\n";
+    open my $test_cases, ">", "$all_testcases_output" or die "Can't open failing output file\n";
 
     my @files = grep { /\.xml$/ } readdir $result_dirhandle;
     foreach my $file (@files) {
@@ -1151,29 +1148,17 @@ sub mvn_extract_test_info {
                                 .'| ./error '
                                 .'| ./rerunError '
                                 .'| ./flakyError')) {
-                print $failing_tests "--- $classname"."::"."$testcasename\n";
-                foreach my $child ($test_case->childNodes()) {
-                    print $failing_tests "$child\n";
-                }
                 $unknown_type = 0;
             }
 
             # System output
             if ($test_case->exists('./system-err '
                                 .'| ./system-out ')) {
-                print $sysout_tests "--- $classname"."::"."$testcasename\n";
-                foreach my $child ($test_case->childNodes()) {
-                    print $sysout_tests "$child\n";
-                }
                 $unknown_type = 0;
             }
 
             # Skipped test cases
             if ($test_case->exists('./skipped')) {
-                print $skipped_tests "--- $classname"."::"."$testcasename\n";
-                foreach my $child ($test_case->childNodes()) {
-                    print $skipped_tests "$child\n";
-                }
                 $unknown_type = 0;
                 # Tests skipped with Maven should also be skipped when running natively
                 $record = 0;
@@ -1191,9 +1176,6 @@ sub mvn_extract_test_info {
 
     close $test_cases;
     close $test_suites;
-    close $failing_tests;
-    close $sysout_tests;
-    close $skipped_tests;
 
     ##### Extract the JUnit version
     open my $dependency, '<', $dependency_file or die "Can't open $dependency_file file\n";;
@@ -1201,7 +1183,6 @@ sub mvn_extract_test_info {
     $dependency_path = defined $dependency_path ? ":$dependency_path" : "";
     close $dependency;
 
-    open my $junit, '>', "$output_folder/junit_version.txt" or die "Can't open junit version file\n";
     my $version;
     if ($dependency_path =~ /\/junit-(\d+).(\d+).?(\d+)?/) {
         if ($1 == "3" && ($2 != "8" && $2 != "9")) {
@@ -1213,23 +1194,23 @@ sub mvn_extract_test_info {
     } else {
         die "Can't determine JUnit version";
     }
-    print $junit $version;
-    close $junit;
 
     ##### Construct the args file for running JUnit tests natively
-    open my $args, '>', "$output_folder/args_junit.txt" or die "Can't open junit args file\n";
+    open my $args, '>', "$junit_args_output" or die "Can't open junit args file\n";
     # TODO The separator is different for Windows machines
     # Add the test runner to the path for JUnit 3 & 4 for running single tests
     my $testrunner = "";
     if ($version == "3" || $version == "4") {
-        $testrunner = ":".'{LIB_PATH}'."/formatter.jar";
+        $testrunner = ":$DEPENDENCY_DIR/formatter.jar";
     }
     if ($version == "3") {
-        $testrunner = "$testrunner:".'{TEST_LIB_PATH}'."/junit-4.12-hamcrest-1.3.jar";
+        $testrunner = "$testrunner:$DEPENDENCY_DIR/junit-4.12-hamcrest-1.3.jar";
     }
     my $classpath = "$test_classes_path:$classes_path$dependency_path$testrunner";
     print $args "-cp $classpath\n";
     close $args;
+
+    return $version;
 }
 
 =pod

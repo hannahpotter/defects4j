@@ -135,8 +135,10 @@ $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 # Set the projects and repository directories to the current working directory.
 my $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 
-my $DEPENDENCIES = "$PROJECTS_DIR/$PID/lib/dependency";
-my $ARGS_FILES = "$PROJECTS_DIR/$PID/args_files";
+my $BUILD_ARGS = "$PROJECTS_DIR/$PID/build_args";
+my $PREEXEC_CMDS = "$PROJECTS_DIR/$PID/preexec_cmds";
+my $JUNIT_ARGS = "$PROJECTS_DIR/$PID/junit_args";
+my $ALL_TESTSUITES = "$PROJECTS_DIR/$PID/all_testsuites";
 
 # Temporary directory
 my $TMP_DIR = Utils::get_tmp_dir();
@@ -174,12 +176,8 @@ foreach my $bid (@bids) {
     $data{$PROJECT} = $PID;
     $data{$ID} = $bid;
 
-    open my $version_file, '<', "$ARGS_FILES/$bid/test_info/junit_version.txt";
-    my $junit_version = <$version_file>;
-    close $version_file;
-
     # V2 must not have any failing tests
-    my $list = _get_failing_tests($project, "$TMP_DIR/v2", $bid, "${bid}f", $junit_version, "$ARGS_FILES/$bid/source_v2_args.txt", "$ARGS_FILES/$bid/source_v2_cmd");
+    my $list = _get_failing_tests($project, "$TMP_DIR/v2", $bid, "${bid}f");
     if (($data{$FAIL_V2} = (scalar(@{$list->{"classes"}}) + scalar(@{$list->{"methods"}}))) != 0) {
         print("Non expected failing test classes/methods on ${PID}-${bid}\n");
         _add_row(\%data);
@@ -187,7 +185,7 @@ foreach my $bid (@bids) {
     }
 
     # V1 must not have failing test classes but at least one failing test method
-    $list = _get_failing_tests($project, "$TMP_DIR/v1", $bid, "${bid}b", $junit_version, "$ARGS_FILES/$bid/source_v1_args.txt", "$ARGS_FILES/$bid/source_v1_cmd");
+    $list = _get_failing_tests($project, "$TMP_DIR/v1", $bid, "${bid}b");
     my $fail_c = scalar(@{$list->{"classes"}}); $data{$FAIL_C_V1} = $fail_c;
     my $fail_m = scalar(@{$list->{"methods"}}); $data{$FAIL_M_V1} = $fail_m;
     if ($fail_c !=0 or $fail_m == 0) {
@@ -209,13 +207,13 @@ foreach my $bid (@bids) {
     print "List of test methods: \n" . join ("\n",  @$list) . "\n";
     # Run triggering test(s) in isolation on v2 -> tests should pass. Any test not
     # passing is excluded from further processing.
-    $list = _run_tests_isolation("$TMP_DIR/v2", $list, $EXPECT_PASS, $junit_version, $bid, "$ARGS_FILES/$bid/source_v2_cmd");
+    $list = _run_tests_isolation("$TMP_DIR/v2", $list, $EXPECT_PASS, $bid);
     $data{$PASS_ISO_V2} = scalar(@$list);
     print "List of test methods: (passed in isolation on v2)\n" . join ("\n", @$list) . "\n";
 
     # Run triggering test(s) in isolation on v1 -> tests should fail. Any test not
     # failing is excluded from further processing.
-    $list = _run_tests_isolation("$TMP_DIR/v1", $list, $EXPECT_FAIL, $junit_version, $bid, "$ARGS_FILES/$bid/source_v1_cmd");
+    $list = _run_tests_isolation("$TMP_DIR/v1", $list, $EXPECT_FAIL, $bid);
     $data{$FAIL_ISO_V1} = scalar(@$list);
     print "List of test methods: (failed in isolation on v1)\n" . join ("\n", @$list) . "\n";
 
@@ -297,7 +295,7 @@ sub _get_bug_ids {
 # Get a list of all failing tests
 #
 sub _get_failing_tests {
-    my ($project, $root, $bid, $vid, $junit_version, $src_args, $src_cmd) = @_;
+    my ($project, $root, $bid, $vid) = @_;
 
     # Clean output file
     system(">$FAILED_TESTS_FILE");
@@ -306,11 +304,11 @@ sub _get_failing_tests {
     $project->checkout_vid($vid, $root, 1) or die;
 
     # Compile src and test
-    $project->compile("$src_args", $DEPENDENCIES) or die;
-    $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES) or die;
+    $project->compile("$BUILD_ARGS/$bid.src") or die;
+    $project->compile("$BUILD_ARGS/$bid.test") or die;
 
     # Run tests and get number of failing tests
-    $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", "$src_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH, "$ARGS_FILES/$bid/test_info/testsuites.txt", $FAILED_TESTS_FILE);
+    $project->run_tests($bid, "$JUNIT_ARGS/$bid", "$PREEXEC_CMDS/$bid.src", "$PREEXEC_CMDS/$bid.test", $TEST_JAR, "$ALL_TESTSUITES/$bid", $FAILED_TESTS_FILE);
     # Return failing tests
     return Utils::get_failing_tests($FAILED_TESTS_FILE);
 }
@@ -319,7 +317,7 @@ sub _get_failing_tests {
 # Run tests in isolation and check for pass/fail
 #
 sub _run_tests_isolation {
-    my ($root, $list, $expect_fail, $junit_version, $bid, $src_cmd) = @_;
+    my ($root, $list, $expect_fail, $bid) = @_;
 
     # Clean output file
     system(">$FAILED_TESTS_FILE");
@@ -330,7 +328,7 @@ sub _run_tests_isolation {
     foreach my $test (@$list) {
         # Clean single test output
         system(">$FAILED_TESTS_FILE_SINGLE");
-        $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", $src_cmd, "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH, "$ARGS_FILES/$bid/test_info/testsuites.txt", $FAILED_TESTS_FILE_SINGLE, 0, $test);
+        $project->run_tests($bid, "$JUNIT_ARGS/$bid", "$PREEXEC_CMDS/$bid.src", "$PREEXEC_CMDS/$bid.test", $TEST_JAR, "$ALL_TESTSUITES/$bid", $FAILED_TESTS_FILE_SINGLE, 0, $test);
         my $fail = Utils::get_failing_tests($FAILED_TESTS_FILE_SINGLE);
         if (scalar(@{$fail->{methods}}) == $expect_fail) {
             push @succeeded_tests, $test;

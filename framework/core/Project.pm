@@ -464,6 +464,14 @@ sub checkout_vid {
     # Write version-specific properties
     $self->_write_props($vid, $is_bugmine);
 
+    # Add symlinks to the project dependencies
+    my $dependency_dir = "$work_dir/$DEPENDENCY_DIR";
+    $cmd = "ln -snf  $PROJECTS_DIR/$pid/lib/dependency $dependency_dir 2>&1" .
+           " && ln -sf $BASE_DIR/framework/projects/lib/junit-4.12-hamcrest-1.3.jar $dependency_dir/junit-4.12-hamcrest-1.3.jar 2>&1" .
+           " && ln -sf $LIB_DIR/formatter.jar $dependency_dir/formatter.jar 2>&1";
+    Utils::exec_cmd($cmd, "Add symlink to project dependencies")
+            or confess("Couldn't add symlink to project dependencies!");
+
     # Fix dependency URLs if necessary (we only fix this on the fixed version
     # since the buggy version is derived by applying a source-code patch).
     for my $build_file (("build.xml", "maven-build.xml", "pom.xml", "project.xml", "project.properties", "default.properties", "maven-build.properties")) {
@@ -663,7 +671,7 @@ sub run_mvn_build_classpath {
               " && mvn dependency:build-classpath" .
               " -DincludeScope=$scope ".
               " -Dmdep.outputFile=$output_file ".
-              " -Dmdep.localRepoProperty=".'{LOCAL_DEPENDENCY_PATH}';
+              " -Dmdep.localRepoProperty=".'.d4jlib';
 
     my $ret = Utils::exec_cmd($cmd, "Running maven build-classpath");
     return $ret;
@@ -736,7 +744,7 @@ sub mvn_compile {
 
 =pod
 
-  $project->compile(arg_file, dependencies [,log_file])
+  $project->compile(arg_file, [,log_file])
 
 Compiles the sources of the project version that is currently checked out.
 If F<log_file> is provided, the compiler output is written to this file.
@@ -744,20 +752,8 @@ If F<log_file> is provided, the compiler output is written to this file.
 =cut
 
 sub compile {
-    @_ >= 3 or die $ARG_ERROR;
-    my ($self, $arg_file, $dependencies, $log_ref) = @_;
-
-    # Set the arg file dependencies
-    rename($arg_file, $arg_file . '.bak');
-    open(IN, '<' . $arg_file . '.bak') or die $!;
-    open(OUT, '>' . $arg_file) or die $!;
-    while(<IN>)
-    {
-        $_ =~ s/{LOCAL_DEPENDENCY_PATH}/$dependencies/g;
-        print OUT $_;
-    }
-    close(IN);
-    close(OUT);
+    @_ >= 2 or die $ARG_ERROR;
+    my ($self, $arg_file, $log_ref) = @_;
 
     my $cmd = " cd $self->{prog_root}" .
               " && javac" .
@@ -765,10 +761,6 @@ sub compile {
               "  2>&1";
     my $log;
     my $ret = Utils::exec_cmd($cmd, "Running javac compile", \$log);
-
-    # Reset the arg file dependencies
-    system("rm -f $arg_file");
-    rename($arg_file . '.bak', $arg_file);
 
     $$log_ref = $log if defined $log_ref;
     return $ret;
@@ -844,22 +836,8 @@ TODO
 =cut
 
 sub _pre_run_tests {
-    @_ == 7 or die $ARG_ERROR;
-    my ($self, $arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $dependencies, $test_jar, $lib_path) = @_;
-
-    # Set the arg file dependencies
-    rename($arg_file, $arg_file . '.bak');
-    open(IN, '<' . $arg_file . '.bak') or die $!;
-    open(OUT, '>' . $arg_file) or die $!;
-    while(<IN>)
-    {
-        $_ =~ s/{LOCAL_DEPENDENCY_PATH}/$dependencies/g;
-        $_ =~ s/{LIB_PATH}/$lib_path/g;
-        $_ =~ s/{TEST_LIB_PATH}/$test_jar/g;
-        print OUT $_;
-    }
-    close(IN);
-    close(OUT);
+    @_ == 4 or die $ARG_ERROR;
+    my ($self, $arg_file, $preprocess_src_cmd, $preprocess_test_cmd) = @_;
 
     if (defined $preprocess_src_cmd && -e $preprocess_src_cmd) {
         open my $preprocess_src_file, '<', "$preprocess_src_cmd";
@@ -884,12 +862,8 @@ TODO
 =cut
 
 sub _post_run_tests {
-    @_ == 6 or die $ARG_ERROR;
-    my ($self, $arg_file, $log, $format, $verbose, $out_file) = @_;
-
-    # Reset the arg file dependencies
-    system("rm -f $arg_file");
-    rename($arg_file . '.bak', $arg_file);
+    @_ == 5 or die $ARG_ERROR;
+    my ($self, $log, $format, $verbose, $out_file) = @_;
 
     # Process the log file to be correct format
     # The expected format for failing tests in Defects4J is:
@@ -935,14 +909,14 @@ Format of C<single_test>: <classname>::<methodname>.
 =cut
 
 sub run_tests {
-    @_ >= 10 or die $ARG_ERROR;
-    my ($self, $version, $arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $dependencies, $test_jar, $lib_path, $test_classes, $out_file, $verbose, $single_test) = @_;
-
+    @_ >= 8 or die $ARG_ERROR;
+    my ($self, $bid, $arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $test_jar, $test_classes, $out_file, $verbose, $single_test) = @_;
+    my $version = $self->_get_junit_version($bid);
     if ($version != "3" && $version != "4" && $version != "5") {
         die "Unhandled JUnit version: $version";
     }
 
-    $self->_pre_run_tests($arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $dependencies, $test_jar, $lib_path);
+    $self->_pre_run_tests($arg_file, $preprocess_src_cmd, $preprocess_test_cmd);
 
     my $cmd;
     # TODO Test defining a single test case for JUnit version 5
@@ -982,7 +956,7 @@ sub run_tests {
     my $log;
     my $ret = Utils::exec_cmd($cmd, "Running junit tests", \$log);
 
-    $self->_post_run_tests($arg_file, $log, 1, $verbose, $out_file);
+    $self->_post_run_tests($log, 1, $verbose, $out_file);
 
     return $ret;
 }
@@ -1124,8 +1098,8 @@ The default is the test directory of the developer-written tests.
 =cut
 
 sub monitor_test {
-    @_ >= 9 or die $ARG_ERROR;
-    my ($self, $single_test, $vid, $arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $dependencies, $test_jar, $lib_path, $test_dir) = @_;
+    @_ >= 6 or die $ARG_ERROR;
+    my ($self, $single_test, $vid, $arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $test_dir) = @_;
     Utils::check_vid($vid);
     $single_test =~ /^([^:]+)(::([^:]+))?$/ or die "Wrong format for single test!";
     $test_dir = $test_dir // "$self->{prog_root}/" . $self->test_dir($vid);
@@ -1137,7 +1111,7 @@ sub monitor_test {
         test => []
     };
 
-    $self->_pre_run_tests($arg_file, $preprocess_src_cmd, $preprocess_test_cmd, $dependencies, $test_jar, $lib_path);
+    $self->_pre_run_tests($arg_file, $preprocess_src_cmd, $preprocess_test_cmd);
     my $cmd = " cd $self->{prog_root}" .
               " && java" .
               " -verbose:class ".
@@ -1146,7 +1120,7 @@ sub monitor_test {
               " 2>&1";
     my $log;
     my $ret = Utils::exec_cmd($cmd, "Logging loaded classes to $log_file", \$log);
-    $self->_post_run_tests($arg_file, $log, 0, 1, $log_file);
+    $self->_post_run_tests($log, 0, 1, $log_file);
     if (! $ret) {
         return undef;
     }
@@ -1729,6 +1703,52 @@ sub _determine_layout {
         );
     }
     return $self->{_layout_cache}->{$rev_id};
+}
+
+#
+# Cache the junit-version map from the project directory, if it exists.
+#
+sub _cache_junit_version_map {
+    @_ == 1 or die $ARG_ERROR;
+    my ($self) = @_;
+    my $pid = $self->{pid};
+    my $map_file = "$PROJECTS_DIR/$pid/$JUNIT_VERSION_FILE";
+    return unless -e $map_file;
+
+    open (IN, "<$map_file") or die "Cannot open directory map $map_file: $!";
+    my $cache = {};
+    while (<IN>) {
+        chomp;
+        /^([^,]+),([^,]+)$/ or die "Unexpected entry in junit version map: $_";
+        $cache->{$1} = $2;
+    }
+    close IN;
+    $self->{_junit_version_cache} = $cache;
+}
+
+#
+# Add to the junit version map.
+#
+sub add_to_junit_version_map {
+    @_ == 3 or die $ARG_ERROR;
+    my ($self, $bid, $junit_version) = @_;
+
+    my $pid = $self->{pid};
+    my $map_file = "$PROJECTS_DIR/$pid/$JUNIT_VERSION_FILE";
+    Utils::append_to_file_unless_matches($map_file, "${bid},${junit_version}\n", qr/^${bid}/);
+}
+
+#
+# Retrieves the junit version for a given revision. It returns the cached
+# version, if it exists, or retrieves and caches the versions.
+#
+sub _get_junit_version {
+    @_ == 2 or die $ARG_ERROR;
+    my ($self, $bid) = @_;
+    unless (defined $self->{_junit_version_cache}->{$bid}) {
+        $self->_cache_junit_version_map();
+    }
+    return $self->{_junit_version_cache}->{$bid};
 }
 
 1;

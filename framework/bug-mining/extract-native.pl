@@ -104,7 +104,6 @@ my $PID = $cmd_opts{p};
 my $BID = $cmd_opts{b};
 my $WORK_DIR = abs_path($cmd_opts{w});
 my $TEST_JAR = (dirname(abs_path(__FILE__)) . "/../projects/lib");
-my $LIB_PATH = (dirname(abs_path(__FILE__)) . "/../lib");
 $DEBUG = 1 if defined $cmd_opts{D};
 
 # Check format of target version id
@@ -119,10 +118,17 @@ unshift(@INC, "$WORK_DIR/framework/core");
 $REPO_DIR = "$WORK_DIR/project_repos";
 $PROJECTS_DIR = "$WORK_DIR/framework/projects";
 
-my $DEPENDENCIES = "$PROJECTS_DIR/$PID/lib/dependency";
 my $ANALYZER_OUTPUT = "$PROJECTS_DIR/$PID/analyzer_output";
-my $ARGS_FILES = "$PROJECTS_DIR/$PID/args_files";
-system("mkdir -p $ARGS_FILES");
+my $BUILD_ARGS = "$PROJECTS_DIR/$PID/build_args";
+my $PREEXEC_CMDS = "$PROJECTS_DIR/$PID/preexec_cmds";
+my $JUNIT_ARGS = "$PROJECTS_DIR/$PID/junit_args";
+my $ALL_TESTSUITES = "$PROJECTS_DIR/$PID/all_testsuites";
+my $ALL_TESTCASES = "$PROJECTS_DIR/$PID/all_testcases";
+system("mkdir -p $BUILD_ARGS");
+system("mkdir -p $PREEXEC_CMDS");
+system("mkdir -p $JUNIT_ARGS");
+system("mkdir -p $ALL_TESTSUITES");
+system("mkdir -p $ALL_TESTCASES");
 
 # Keep log of issues
 my $LOG = "$PROJECTS_DIR/$PID/extract_native_error_log.txt";
@@ -179,19 +185,21 @@ sub _check_compilation {
     my $project_path = $project->{prog_root};
 
     # Clean up previous build files
-    system("rm -rf $ARGS_FILES/$bid");
-    system("mkdir -p $ARGS_FILES/$bid");
+    system("rm -f $BUILD_ARGS/$bid.src");
+    system("rm -f $BUILD_ARGS/$bid.test");
+    system("rm -f $PREEXEC_CMDS/$bid.src");
+    system("rm -f $PREEXEC_CMDS/$bid.test");
 
     # Checkout v1
     $project->checkout_vid("${bid}b", $TMP_DIR, 1) == 1 or die;    
 
     # Construct the args files for compiling source and tests
-    my $source_v1_cp = "$ANALYZER_OUTPUT/$bid/source_v1_cp";
-    $project->run_mvn_build_classpath("compile", $source_v1_cp);
-    $project->construct_javac_args("${bid}b", $source_v1_cp, 1, "$ARGS_FILES/$bid/source_v1_args.txt", "$ARGS_FILES/$bid/source_v1_cmd");
+    my $source_cp = "$ANALYZER_OUTPUT/$bid/source_cp";
+    $project->run_mvn_build_classpath("compile", $source_cp);
+    $project->construct_javac_args("${bid}b", $source_cp, 1, "$BUILD_ARGS/$bid.src", "$PREEXEC_CMDS/$bid.src");
     # Confirm that the args file is correct for compiling v1 source
     my $log;
-    my $ret = $project->compile("$ARGS_FILES/$bid/source_v1_args.txt", $DEPENDENCIES, \$log);
+    my $ret = $project->compile("$BUILD_ARGS/$bid.src", \$log);
     if (! $ret) {
         system("echo \"--------------------- Error compiling v1 source ${bid} --------------------- \n${log}\n\n\" >> $LOG");
     }
@@ -199,9 +207,9 @@ sub _check_compilation {
 
     my $test_cp = "$ANALYZER_OUTPUT/$bid/test_cp";
     $project->run_mvn_build_classpath("test", $test_cp);
-    $project->construct_javac_args("${bid}b", $test_cp, 0, "$ARGS_FILES/$bid/test_args.txt", "$ARGS_FILES/$bid/test_args_cmd");
+    $project->construct_javac_args("${bid}b", $test_cp, 0, "$BUILD_ARGS/$bid.test", "$PREEXEC_CMDS/$bid.test");
     # Confirm that the args file is correct for compiling v1t2 tests
-    $ret = $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES, \$log);
+    $ret = $project->compile("$BUILD_ARGS/$bid.test", \$log);
     if (! $ret) {
         system("echo \"--------------------- Error compiling v1t2 tests ${bid} --------------------- \n${log}\n\n\" >> $LOG");
     }
@@ -210,19 +218,15 @@ sub _check_compilation {
     # Checkout v2
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
 
-    # Construct the args files for compiling source
-    my $source_v2_cp = "$ANALYZER_OUTPUT/$bid/source_v2_cp";
-    $project->run_mvn_build_classpath("compile", $source_v2_cp);
-    $project->construct_javac_args("${bid}f", $source_v2_cp, 1, "$ARGS_FILES/$bid/source_v2_args.txt", "$ARGS_FILES/$bid/source_v2_cmd");
     # Confirm that the args file is correct for compiling v2 source
-    $ret = $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES, \$log);
+    $ret = $project->compile("$BUILD_ARGS/$bid.src", \$log);
     if (! $ret) {
         system("echo \"--------------------- Error compiling v2 source ${bid} --------------------- \n${log}\n\n\" >> $LOG");
     }
     _add_bool_result($data, $COMP_V2, $ret) or return 0;
 
     # Confirm that the args file is correct for compiling v2t2 tests
-    $ret = $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES, \$log);
+    $ret = $project->compile("$BUILD_ARGS/$bid.test", \$log);
     if (! $ret) {
         system("echo \"--------------------- Error compiling v2t2 tests ${bid} --------------------- \n${log}\n\n\" >> $LOG");
     }
@@ -253,19 +257,21 @@ sub _check_tests {
     my $num_total_mvn = Utils::get_total_tests_mvn("$project_path/target/surefire-reports");
 
     # Extract test info from the Maven run
-    system("mkdir -p $ARGS_FILES/$bid/test_info");
-    Utils::mvn_extract_test_info("$project_path/target/surefire-reports", "$ANALYZER_OUTPUT/$bid/test_cp", 'target/classes', 'target/test-classes', "$ARGS_FILES/$bid/test_info");
+    my $junit_version = Utils::mvn_extract_test_info("$project_path/target/surefire-reports",
+                                                     "$ANALYZER_OUTPUT/$bid/test_cp",
+                                                     'target/classes',
+                                                     'target/test-classes',
+                                                     "$JUNIT_ARGS/$bid",
+                                                     "$ALL_TESTSUITES/$bid",
+                                                     "$ALL_TESTCASES/$bid");
+    $project->add_to_junit_version_map("$bid", $junit_version);
     $project->run_mvn_clean();
-
-    open my $version_file, '<', "$ARGS_FILES/$bid/test_info/junit_version.txt";
-    my $junit_version = <$version_file>;
-    close $version_file;
 
     # Run tests natively and check getting same results as maven
     my $file = "$TMP_DIR/test.output"; `>$file`;
-    $project->compile("$ARGS_FILES/$bid/source_v2_args.txt", $DEPENDENCIES);
-    $project->compile("$ARGS_FILES/$bid/test_args.txt", $DEPENDENCIES);
-    $project->run_tests($junit_version, "$ARGS_FILES/$bid/test_info/args_junit.txt", "$ARGS_FILES/$bid/source_v2_cmd", "$ARGS_FILES/$bid/test_args_cmd", $DEPENDENCIES, $TEST_JAR, $LIB_PATH, "$ARGS_FILES/$bid/test_info/testsuites.txt", $file, 1);
+    $project->compile("$BUILD_ARGS/$bid.src");
+    $project->compile("$BUILD_ARGS/$bid.test");
+    $project->run_tests($bid, "$JUNIT_ARGS/$bid", "$PREEXEC_CMDS/$bid.src", "$PREEXEC_CMDS/$bid.test", $TEST_JAR, "$ALL_TESTSUITES/$bid", $file, 1);
     my $native_failing = Utils::get_failing_tests($file);
     my $num_fail_native = scalar(@{$native_failing->{"classes"}}) + scalar(@{$native_failing->{"methods"}});
     my ($num_total_native, $num_fail_summary_native) = Utils::get_test_summary($file);
