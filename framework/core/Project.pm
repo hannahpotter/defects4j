@@ -608,9 +608,8 @@ sub construct_javac_args {
 
     # Construct any additional processing commands needed to run tests natively
     # Copy over test resources
+    my @cmds = ();
     if (! $for_src) {
-        open my $cmd_file, '>', $cmd_output;
-
         # Look for resources specified in the mvn build file
         foreach my $element ($xpc->findnodes("//ns:build/ns:testResources/ns:testResource")) {
             my($directory) = $element->getChildrenByTagName("directory");
@@ -618,14 +617,18 @@ sub construct_javac_args {
             my @excludes = map {"--exclude=\"".$_->textContent()."\""} $excludes->getChildrenByTagName("exclude");
             my $excludePattern = join(" ", @excludes);
 
-            print $cmd_file "rsync -avm $excludePattern ".$directory->textContent()."/ $target\n";
+            push @cmds, "rsync -avm $excludePattern ".$directory->textContent()."/ $target";
         }
+    }
 
-        # Look for resources folder
-        if (-d "$self->{prog_root}/$sourcepath/../resources") {
-            print $cmd_file "cp -r $sourcepath/../resources/. $target\n";
-        }
-        
+    # Look for resources folder
+    if (-d "$self->{prog_root}/$sourcepath/../resources") {
+        push @cmds, "cp -r $sourcepath/../resources/. $target";
+    }
+
+    if (@cmds) {
+        open my $cmd_file, '>', $cmd_output;
+        print $cmd_file join("\n", @cmds);
         close $cmd_output;
     }
 

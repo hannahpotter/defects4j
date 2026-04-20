@@ -107,7 +107,6 @@ This script performs 3 tasks:
    temporary *bug-mining* working directory (`$WORK_DIR`) and creates the
    following files:
    - Project Perl module: `$WORK_DIR/framework/core/Project/$PROJECT_ID.pm`
-   - Project build file: `$WORK_DIR/framework/projects/$PROJECT_ID/$PROJECT_ID.build.xml`
    - Project repository: `$WORK_DIR/project_repos/$PROJECT_NAME.git`
 
 2. Collects all data of each issue in the project issue tracker. The data of

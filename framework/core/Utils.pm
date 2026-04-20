@@ -540,7 +540,9 @@ sub fix_pom {
             my $build_properties = $dom->createElement("exclude");
             $build_properties->appendText("defects4j.build.properties");        
             my $config = $dom->createElement("exclude");
-            $config->appendText(".defects4j.config"); 
+            $config->appendText(".defects4j.config");
+            my $lib = $dom->createElement("exclude");
+            $lib->appendText(".d4jlib/**"); 
 
             my($configuration) = $element->getChildrenByTagName('configuration');
             if ($configuration) {
@@ -551,12 +553,14 @@ sub fix_pom {
                 } 
                 $excludes->addChild($build_properties);
                 $excludes->addChild($config);
+                $excludes->addChild($lib);
             } else {
                 my $configuration = $dom->createElement("configuration");
                 my $excludes = $dom->createElement("excludes");
 
                 $excludes->addChild($build_properties);
                 $excludes->addChild($config);
+                $excludes->addChild($lib);
                 $configuration->addChild($excludes);
                 $element->addChild($configuration);
             }
