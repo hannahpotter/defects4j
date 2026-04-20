@@ -54,8 +54,8 @@ of the checked-out project version.
                debug="on"
                deprecation="false"
                encoding="UTF-8"
-               source="1.6"
-               target="1.6">
+               source="1.8"
+               target="1.8">
             <classpath refid="build.classpath" />
             <include name="org/jfree/**"/>
         </javac>
@@ -104,8 +104,8 @@ of the checked-out project version.
                debug="on"
                deprecation="false"
                encoding="UTF-8"
-               source="1.6"
-               target="1.6">
+               source="1.8"
+               target="1.8">
             <classpath refid="build.experimental.classpath" />
             <include name="org/jfree/experimental/**"/>
             <exclude name="org/jfree/experimental/**/junit/*"/>
@@ -119,8 +119,8 @@ of the checked-out project version.
         <javac srcdir="${d4j.workdir}/tests"
                destdir="${d4j.workdir}/build-tests"
                encoding="UTF-8"
-               source="1.6"
-               target="1.6"
+               source="1.8"
+               target="1.8"
                debug="true"
                deprecation="false"
                optimize="false">
