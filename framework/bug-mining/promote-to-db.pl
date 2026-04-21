@@ -124,16 +124,17 @@ system("mkdir -p $OUTPUT_DIR/$PID");
 my $project = Project::create_project($PID);
 my $dbh_trigger = DB::get_db_handle($TAB_TRIGGER, $WORK_DIR);
 
-my @rev_specific_files = ("failing_tests/<rev>", "build_files/<rev>");
-my @id_specific_files = ("all_testcases/<id>.src", "all_testcases/<id>.test",
-                         "all_testsuites/<id>.src", "all_testsuites/<id>.test",
+my @rev_specific_files = ("failing_tests/<rev>");
+my @id_specific_files = ("all_testcases/<id>",
+                         "all_testsuites/<id>",
                          "build_args/<id>.src", "build_args/<id>.test",
-                         "failing_tests/<id>.src", "failing_tests/<id>.test",
-                         "junit_args/<id>.src", "junit_args/<id>.test",
+                         "junit_args/<id>",
                          "loaded_classes/<id>.src", "loaded_classes/<id>.test",
                          "modified_classes/<id>.src", "modified_classes/<id>.test",
                          "patches/<id>.src.patch", "patches/<id>.test.patch",
-                         "trigger_tests/<id>", "relevant_tests/<id>");
+                         "preexec_cmds/<id>.src", "preexec_cmds/<id>.test",
+                         "trigger_tests/<id>",
+                         "relevant_tests/<id>");
 my @generic_files_and_directories_to_replace = ("lib", $BUGS_CSV_DEPRECATED);
 my @generic_files_to_append = ("dependent_tests", $JUNIT_VERSION_FILE, $LAYOUT_FILE);
 
