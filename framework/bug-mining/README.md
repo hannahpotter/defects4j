@@ -296,6 +296,9 @@ whether the source code and the test cases still compile and (2) whether the
 list of triggering test cases is still the same. The script also recomputes all
 metadata by rerunning the `get-metadata.pl` script if the patch has been
 minimized.
+- Note: You can use the optional argument `-F` to allow for overriding the check
+  for if the triggering tests give errors that are negligibly different (e.g., different
+  error message because of generated IDs).
 
 To restore the original patch, you may delete the corresponding patch in the `patch` 
 directory and re-run `./initialize-revision.pl -p <project> -w <working-directory> -b <bug.id>`

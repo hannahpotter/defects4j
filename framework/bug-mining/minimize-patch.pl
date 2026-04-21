@@ -52,6 +52,10 @@ The id of the bug for which the patch should be displayed.
 
 The working directory used for the bug-mining process.
 
+=item B<-F>
+Allow manual overriding of checks (whether the list of triggering tests fail for the same reason)
+(optional).
+
 =back
 
 =cut
@@ -69,7 +73,7 @@ use Constants;
 use Project;
 
 my %cmd_opts;
-getopts('p:b:w:', \%cmd_opts) or pod2usage(1);
+getopts('p:b:w:F', \%cmd_opts) or pod2usage(1);
 
 pod2usage(1) unless defined $cmd_opts{p} and defined $cmd_opts{b} and defined $cmd_opts{w};
 
@@ -86,6 +90,7 @@ my $EDITOR = $ENV{"D4J_EDITOR"} // "meld";
 my $PID = $cmd_opts{p};
 my $BID = $cmd_opts{b};
 my $WORK_DIR = abs_path($cmd_opts{w});
+my $OVERRIDE_CHECKS = 1 if defined $cmd_opts{F};
 my $TEST_JAR = (dirname(abs_path(__FILE__)) . "/../projects/lib");
 my $LIB_PATH = (dirname(abs_path(__FILE__)) . "/../lib");
 
@@ -213,7 +218,14 @@ while (1) {
         system("cat $local_trigger_tests-reason.original");
         print("vs\n");
         system("cat $local_trigger_tests-reason.minimal");
-        next;
+
+        if ($OVERRIDE_CHECKS) {
+            print "Override check (the triggering tests fail for the same reason modulo some nonrelevant error message differences)? [y/n] > ";
+            $input = <STDIN>; chomp $input;
+            next unless lc $input eq "y";
+        } else {
+            next;
+        }
     }
 
     # Stack trace might have changed (e.g., line numbers), update it
