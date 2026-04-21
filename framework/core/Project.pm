@@ -587,14 +587,14 @@ sub construct_javac_args {
 
     # Set the Java version
     # TODO don't hardcode the version number
-    print $args_file "--release 11\n";
+    print $args_file "--release 17\n";
 
     # Set the encoding
     my $dom = XML::LibXML->load_xml(location => "$self->{prog_root}/pom.xml") or die("Cannot read the build file: $self->{prog_root}/pom.xml");
     my $root_ns = $dom->documentElement->namespaceURI;
     my $xpc = XML::LibXML::XPathContext->new($dom);
     $xpc->registerNs('ns', $root_ns);
-    foreach my $element ($xpc->findnodes("//ns:plugin/ns:artifactId[text()='maven-compiler-plugin']/following-sibling::encoding")) {
+    foreach my $element ($xpc->findnodes("//ns:plugin/ns:artifactId[text()='maven-compiler-plugin']/../ns:configuration/ns:encoding")) {
         my($encoding) = $element->childNodes();
         print $args_file "-encoding $encoding\n";
     }
@@ -964,7 +964,6 @@ sub run_tests {
     $self->_post_run_tests($log, 1, $verbose, $out_file);
 
     return $ret;
-}
 }
 
 =pod

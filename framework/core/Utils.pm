@@ -1099,7 +1099,7 @@ sub extract_failing_tests_mvn {
 
 =pod
 
-=item C<Utils::mvn_extract_test_info(test_result_folder, dependency_file, classes_path, test_classes_path, output_folder)>
+=item C<Utils::mvn_extract_test_info(test_result_folder, pom_file,dependency_file, classes_path, test_classes_path, output_folder)>
 
 TODO
 
@@ -1107,8 +1107,8 @@ TODO
 =cut
 
 sub mvn_extract_test_info {
-    @_ == 7 or die $ARG_ERROR;
-    my ($test_result_folder, $dependency_file, $classes_path, $test_classes_path, $junit_args_output, $all_testsuites_output, $all_testcases_output) = @_;
+    @_ == 8 or die $ARG_ERROR;
+    my ($test_result_folder, $pom_file, $dependency_file, $classes_path, $test_classes_path, $junit_args_output, $all_testsuites_output, $all_testcases_output) = @_;
 
     ##### Extract the test results
     opendir my($result_dirhandle), $test_result_folder;
@@ -1212,6 +1212,17 @@ sub mvn_extract_test_info {
     }
     my $classpath = "$test_classes_path:$classes_path$dependency_path$testrunner";
     print $args "-cp $classpath\n";
+
+
+    # Set the necessary add-exports argument
+    my $dom = XML::LibXML->load_xml(location => $pom_file) or die("Cannot read the build file: $pom_file");
+    my $root_ns = $dom->documentElement->namespaceURI;
+    my $xpc = XML::LibXML::XPathContext->new($dom);
+    $xpc->registerNs('ns', $root_ns);
+    foreach my $element ($xpc->findnodes("//ns:plugin/ns:artifactId[text()='maven-surefire-plugin']/../ns:configuration/ns:argLine")){#}::argLine")){#/ns:argLine")) {
+        my($add_exports) = $element->childNodes();
+        print $args "$add_exports\n";
+    }
     close $args;
 
     return $version;

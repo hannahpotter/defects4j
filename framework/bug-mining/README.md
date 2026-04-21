@@ -158,6 +158,12 @@ If the build of a revision fails, the `analyze_project_error_log.txt` file under
 `$WORK_DIR/framework/projects/$PROJECT_ID` will provide logging information for the issue.
 If there is an issue with pom properties, edit `fix_pom_properties.patterns`.
 If there is an issue with pom plugins, edit `fix_pom_config.patterns`.
+- Note: A common issue that shows up in both `$WORK_DIR/framework/projects/$PROJECT_ID/failing_tests` and
+  `$WORK_DIR/framework/projects/$PROJECT_ID/analyze_project_error_log.txt` is due to Java 17 restrictions
+  on deep reflection on JDK internals (error message will look something like `module X does not \"opens java.Y\" to unnamed module`).
+  To fix this issue add the appropriate `--add-exports` option to the `maven-surefire-plugin` configuration in `fix_pom_config.patterns`.
+- Note: You will need to rerun rerun `initialize_revision.pl` if there are changes
+      introduced to `fix_pom_X` files that add/modify dependencies.
 
 Once a fix has been made, remove the related bug entry from `$WORK_DIR/rev_pairs` and rerun `analyze_project.pl` with `-b <bug_id>`.
 
@@ -166,11 +172,13 @@ Upon completion of this stage:
     generated in the `$WORK_DIR/framework/projects/$PROJECT_ID/failing_tests`
     folder to ensure that tests failed for valid reasons and not due to
     configuration errors. Failed assertions are generally valid test failures.
-    Missing files or classes are generally due to a configuration issue.
+    Missing files or classes are generally due to a configuration issue. See the note
+    above for how to fix `unnamed module` errors.
   - Inspect all build and test errors in `$WORK_DIR/framework/projects/$PROJECT_ID/analyze_project_error_log.txt`
     to ensure the errors are for valid reasons and not due to configuration errors.
     Issues with missing symbols for building v1 with t2 tests (the error log indicates this issue
     and `compile_t2v1` is 0 in `$WORK_DIR/rev_pairs` for the bug id) are generally valid errors.
+
 
 
 ### Tips in case a revision fails to build

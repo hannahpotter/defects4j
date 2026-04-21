@@ -8,15 +8,17 @@
 # Rows starting with '#' are ignored.
 # See https://grantm.github.io/perl-libxml-by-example/xpath.html for examples of paths and a sandbox to test out queries.
 #
-PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,version,3.8.0
-PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,configuration/release,11
-PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,configuration/source,11
-PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,configuration/target,11
-# org.apache.felix:maven-bundle-plugin version 5.1.9 works with Java 11
-PLUGIN,org.apache.felix,maven-bundle-plugin,version,5.1.9
-# org.apache.maven.plugins:maven-surefire-plugin version 2.20.1 doesn't work with Java 11 (2.21.0 does)
-PLUGIN,org.apache.maven.plugins,maven-surefire-plugin,version,2.21.0
-# org.powermock:powermock-api-easymock,powermock-module-junit4 version 2.0.2 has some support for Java 11; org.easymock:easymock version 4.0.1 is compatible with this powermock version
-DEPENDENCY,org.powermock,powermock-api-easymock,version,2.0.2
-DEPENDENCY,org.powermock,powermock-module-junit4,version,2.0.2
+PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,version,3.13.0
+PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,configuration/release,17
+PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,configuration/source,17
+PLUGIN,org.apache.maven.plugins,maven-compiler-plugin,configuration/target,17
+# org.apache.felix:maven-bundle-plugin version 6.0.0 works with Java 17
+PLUGIN,org.apache.felix,maven-bundle-plugin,version,6.0.0
+# org.apache.maven.plugins:maven-surefire-plugin version 3.0.0 works with Java 17
+PLUGIN,org.apache.maven.plugins,maven-surefire-plugin,version,3.0.0
+# Java 17 restricts deep reflection on JDK internals
+PLUGIN,org.apache.maven.plugins,maven-surefire-plugin,configuration/argLine,--add-exports=java.base/jdk.internal.access.foreign=ALL-UNNAMED --add-exports=java.base/sun.util=ALL-UNNAMED --add-exports=java.xml/com.sun.org.apache.xerces.internal.jaxp=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.ref=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.nio.charset=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/javax.net=ALL-UNNAMED --add-opens=java.base/sun.nio.cs=ALL-UNNAMED --add-opens=java.base/sun.reflect.generics.reflectiveObjects=ALL-UNNAMED --add-opens=java.logging/java.util.logging=ALL-UNNAMED --add-opens=java.base/java.util.regex=ALL-UNNAMED
+# org.powermock:powermock-api-easymock,powermock-module-junit4 2.0.9 is newest version (not completely compatible with Java 17); org.easymock:easymock version 4.0.1 is compatible with this powermock version
+DEPENDENCY,org.powermock,powermock-api-easymock,version,2.0.9
+DEPENDENCY,org.powermock,powermock-module-junit4,version,2.0.9
 DEPENDENCY,org.easymock,easymock,version,4.0.1

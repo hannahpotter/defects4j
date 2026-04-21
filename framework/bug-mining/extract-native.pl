@@ -253,6 +253,7 @@ sub _check_tests {
 
     # Extract test info from the Maven run
     my $junit_version = Utils::mvn_extract_test_info("$project_path/target/surefire-reports",
+                                                     "$project_path/pom.xml",
                                                      "$ANALYZER_OUTPUT/$bid/test_cp",
                                                      'target/classes',
                                                      'target/test-classes',

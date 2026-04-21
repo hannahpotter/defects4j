@@ -8,8 +8,8 @@
 # See https://grantm.github.io/perl-libxml-by-example/xpath.html for examples of paths and a nice sandbox to test out queries.
 #
 # Set the correct Java version
-//ns:properties/ns:maven.compiler.source,11
-//ns:properties/ns:maven.compiler.target,11
-//ns:properties/ns:maven.compile.source,11
-//ns:properties/ns:maven.compile.target,11
+//ns:properties/ns:maven.compiler.source,17
+//ns:properties/ns:maven.compiler.target,17
+//ns:properties/ns:maven.compile.source,17
+//ns:properties/ns:maven.compile.target,17
 # Move the regex ones to this format
