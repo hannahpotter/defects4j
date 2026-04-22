@@ -136,7 +136,7 @@ my @id_specific_files = ("all_testcases/<id>",
                          "trigger_tests/<id>",
                          "relevant_tests/<id>");
 my @generic_files_and_directories_to_replace = ("lib", $BUGS_CSV_DEPRECATED);
-my @generic_files_to_append = ("dependent_tests", $JUNIT_VERSION_FILE, $LAYOUT_FILE);
+my @generic_files_to_append = ("dependent_tests", $LAYOUT_FILE);
 
 my @ids = _get_bug_ids($BID);
 foreach my $id (@ids) {
@@ -181,6 +181,17 @@ foreach my $id (@ids) {
     }
 
     print FH "$max_number,$v1,$v2,$issue_id,$issue_url\n";
+    close FH;
+    my $junit_version_file = "$OUTPUT_DIR/$PID/$JUNIT_VERSION_FILE";
+    open FH, ">>$junit_version_file" or die "could not open output junit-version csv for writing";
+
+    # If this is the first bug to be promoted, print the header to the junit-version csv file.
+    if ($max_number == 1) {
+        print FH $JUNIT_CSV_BUGID.",".$JUNIT_CSV_VERSION."\n";
+    }
+
+    my $junit_version = $project->_get_junit_version("${id}");
+    print FH "$max_number,$junit_version\n";
     close FH;
     for my $rev ($v1, $v2) {
         for my $fn (@rev_specific_files) {
