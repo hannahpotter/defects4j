@@ -84,17 +84,17 @@ Returns the list of active bug IDs for project Collections.
 
 Returns the list of available fields that can be queried.
 
-=item -C<d4j-query -p Collections -q "revision.buggy,classes.modified">
+=item -C<d4j-query -p Collections -q "revision.id.buggy,classes.modified">
 
 Returns all active bug IDs, and for each, the revision hash of the buggy 
 version and the list of modified classes.
 
-=item -C<d4j-query -p Collections -q "revision.buggy,classes.modified" -D>
+=item -C<d4j-query -p Collections -q "revision.id.buggy,classes.modified" -D>
 
 Returns all deprecated bug IDs, and for each, the revision hash of the buggy 
 version and the list of modified classes.
 
-=item -C<d4j-query -p Collections -q "revision.buggy,classes.modified" -A>
+=item -C<d4j-query -p Collections -q "revision.id.buggy,classes.modified" -A>
 
 Returns all bug IDs (active and deprecated), and for each, the revision hash 
 of the buggy version and the list of modified classes.
