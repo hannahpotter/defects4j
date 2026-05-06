@@ -222,7 +222,6 @@ sub print_info {
     print "-"x80 . "\n";
     printf ("%14s: %s\n", "Project ID", $pid);
     printf ("%14s: %s\n", "Program", $self->{prog_name});
-    printf ("%14s: %s\n", "Build file", "$PROJECTS_DIR/$pid/$pid.build.xml");
     print "-"x80 . "\n";
     printf ("%14s: %s\n", "Vcs", ref $self->{_vcs});
     printf ("%14s: %s\n", "Repository", $self->{_vcs}->{repo});
