@@ -471,6 +471,13 @@ sub checkout_vid {
     Utils::exec_cmd($cmd, "Add symlink to project dependencies")
             or confess("Couldn't add symlink to project dependencies!");
 
+    # Add symlinks to the argument files
+    $cmd = "ln -sf $PROJECTS_DIR/$pid/build_args/$bid.src $work_dir/.d4jsrcarg 2>&1" .
+           " && ln -sf $PROJECTS_DIR/$pid/build_args/$bid.test $work_dir/.d4jtestarg 2>&1" .
+           " && ln -sf $PROJECTS_DIR/$pid/junit_args/$bid $work_dir/.d4jjunitarg 2>&1";
+    Utils::exec_cmd($cmd, "Add symlink to argument files")
+            or confess("Couldn't add symlink to argument files!");
+
     # Fix dependency URLs if necessary (we only fix this on the fixed version
     # since the buggy version is derived by applying a source-code patch).
     for my $build_file (("build.xml", "maven-build.xml", "pom.xml", "project.xml", "project.properties", "default.properties", "maven-build.properties")) {
@@ -745,7 +752,7 @@ sub mvn_compile {
 
 =pod
 
-  $project->compile(arg_file, [,log_file])
+  $project->compile([,log_file])
 
 Compiles the sources of the project version that is currently checked out.
 If F<log_file> is provided, the compiler output is written to this file.
@@ -753,15 +760,15 @@ If F<log_file> is provided, the compiler output is written to this file.
 =cut
 
 sub compile {
-    @_ >= 2 or die $ARG_ERROR;
-    my ($self, $arg_file, $log_ref) = @_;
+    @_ >= 1 or die $ARG_ERROR;
+    my ($self, $log_ref) = @_;
 
     my $cmd = " cd $self->{prog_root}" .
               " && javac" .
-              ' @'."$arg_file" .
+              ' @'.".d4jsrcarg" .
               "  2>&1";
     my $log;
-    my $ret = Utils::exec_cmd($cmd, "Running javac compile", \$log);
+    my $ret = Utils::exec_cmd($cmd, "Running javac compile src", \$log);
 
     $$log_ref = $log if defined $log_ref;
     return $ret;
@@ -777,8 +784,18 @@ If F<log_file> is provided, the compiler output is written to this file.
 =cut
 
 sub compile_tests {
-    my ($self, $log_file) = @_;
-    return $self->_ant_call_comp("compile.tests", undef, $log_file);
+    @_ >= 1 or die $ARG_ERROR;
+    my ($self, $log_ref) = @_;
+
+    my $cmd = " cd $self->{prog_root}" .
+              " && javac" .
+              ' @'.".d4jtestarg" .
+              "  2>&1";
+    my $log;
+    my $ret = Utils::exec_cmd($cmd, "Running javac compile test", \$log);
+
+    $$log_ref = $log if defined $log_ref;
+    return $ret;
 }
 
 =pod

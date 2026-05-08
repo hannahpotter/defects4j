@@ -189,8 +189,8 @@ foreach my $bid (@bids) {
     }
 
     # Compile sources and tests
-    $project->compile("$BUILD_ARGS/$bid.src") or die;
-    $project->compile("$BUILD_ARGS/$bid.test") or die;
+    $project->compile() or die;
+    $project->compile_tests() or die;
 
     my %src;
     my %test;

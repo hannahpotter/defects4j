@@ -195,7 +195,7 @@ sub _check_compilation {
     $project->construct_javac_args("${bid}b", $source_cp, 1, "$BUILD_ARGS/$bid.src", "$PREEXEC_CMDS/$bid.src");
     # Confirm that the args file is correct for compiling v1 source
     my $log;
-    my $ret = $project->compile("$BUILD_ARGS/$bid.src", \$log);
+    my $ret = $project->compile(\$log);
     if (! $ret) {
         system("echo \"--------------------- Error compiling v1 source ${bid} --------------------- \n${log}\n\n\" >> $LOG");
     }
@@ -205,7 +205,7 @@ sub _check_compilation {
     $project->run_mvn_build_classpath("test", $test_cp);
     $project->construct_javac_args("${bid}b", $test_cp, 0, "$BUILD_ARGS/$bid.test", "$PREEXEC_CMDS/$bid.test");
     # Confirm that the args file is correct for compiling v1t2 tests
-    $ret = $project->compile("$BUILD_ARGS/$bid.test", \$log);
+    $ret = $project->compile_tests(\$log);
     if (! $ret) {
         system("echo \"--------------------- Error compiling v1t2 tests ${bid} --------------------- \n${log}\n\n\" >> $LOG");
     }
@@ -215,14 +215,14 @@ sub _check_compilation {
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) == 1 or die;
 
     # Confirm that the args file is correct for compiling v2 source
-    $ret = $project->compile("$BUILD_ARGS/$bid.src", \$log);
+    $ret = $project->compile(\$log);
     if (! $ret) {
         system("echo \"--------------------- Error compiling v2 source ${bid} --------------------- \n${log}\n\n\" >> $LOG");
     }
     _add_bool_result($data, $COMP_V2, $ret) or return 0;
 
     # Confirm that the args file is correct for compiling v2t2 tests
-    $ret = $project->compile("$BUILD_ARGS/$bid.test", \$log);
+    $ret = $project->compile_tests(\$log);
     if (! $ret) {
         system("echo \"--------------------- Error compiling v2t2 tests ${bid} --------------------- \n${log}\n\n\" >> $LOG");
     }
@@ -266,8 +266,8 @@ sub _check_tests {
 
     # Run tests natively and check getting same results as maven
     my $file = "$TMP_DIR/test.output"; `>$file`;
-    $project->compile("$BUILD_ARGS/$bid.src");
-    $project->compile("$BUILD_ARGS/$bid.test");
+    $project->compile();
+    $project->compile_tests();
     $project->run_tests($bid, "$JUNIT_ARGS/$bid", "$PREEXEC_CMDS/$bid.src", "$PREEXEC_CMDS/$bid.test", $TEST_JAR, "$ALL_TESTSUITES/$bid", $file, 1);
     my $native_failing = Utils::get_failing_tests($file);
     my $num_fail_native = scalar(@{$native_failing->{"classes"}}) + scalar(@{$native_failing->{"methods"}});

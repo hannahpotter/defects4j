@@ -176,7 +176,7 @@ while (1) {
     my $log;
     my $compile_log_file = "$TMP_DIR/compile-log.txt";
     system(">$compile_log_file");
-    my $ret = $project->compile("$BUILD_ARGS/$BID.src", \$log);
+    my $ret = $project->compile(\$log);
     system("echo '$log' > $compile_log_file");
     unless ($ret) {
         system("cat $compile_log_file");
@@ -184,7 +184,7 @@ while (1) {
     }
     my $compile_tests_log_file = "$TMP_DIR/compile_tests-log.txt";
     system(">$compile_tests_log_file");
-    $ret = $project->compile("$BUILD_ARGS/$BID.test", \$log);
+    $ret = $project->compile_tests(\$log);
     system("echo '$log' > $compile_tests_log_file");
     unless ($ret) {
         system("cat $compile_tests_log_file");

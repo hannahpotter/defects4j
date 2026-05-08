@@ -302,8 +302,8 @@ sub _get_failing_tests {
     $project->checkout_vid($vid, $root, 1) or die;
 
     # Compile src and test
-    $project->compile("$BUILD_ARGS/$bid.src") or die;
-    $project->compile("$BUILD_ARGS/$bid.test") or die;
+    $project->compile() or die;
+    $project->compile_tests() or die;
 
     # Run tests and get number of failing tests
     $project->run_tests($bid, "$JUNIT_ARGS/$bid", "$PREEXEC_CMDS/$bid.src", "$PREEXEC_CMDS/$bid.test", $TEST_JAR, "$ALL_TESTSUITES/$bid", $FAILED_TESTS_FILE);
