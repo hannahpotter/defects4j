@@ -102,16 +102,16 @@ unshift(@INC, "$WORK_DIR/framework/core");
 # Override global constants
 $REPO_DIR = "$WORK_DIR/project_repos";
 $PROJECTS_DIR = "$WORK_DIR/framework/projects";
+$DEPENDENCY_ROOT = "$PROJECTS_DIR/$PID/lib/dependency";
 
 # Create necessary directories
 my $PROJECT_DIR = "$PROJECTS_DIR/$PID";
 my $PATCH_DIR   = "$PROJECT_DIR/patches";
-my $DEPENDENCIES = "$PROJECT_DIR/lib/dependency";
 
 -d $PROJECT_DIR or die "$PROJECT_DIR does not exist: $!";
 -d $PATCH_DIR or die "$PATCH_DIR does not exist: $!";
 
-system("mkdir -p $DEPENDENCIES");
+system("mkdir -p $DEPENDENCY_ROOT");
 
 # Keep log of issues
 my $LOG = "$PROJECT_DIR/initialize_revisions_error_log.txt";
@@ -181,7 +181,7 @@ sub _init_maven {
     }
 
     # Copy dependencies to project lib/dependency (ignores dependency if local copy already exists)
-    if (! $project->run_mvn_copy_dependencies($DEPENDENCIES)) {
+    if (! $project->run_mvn_copy_dependencies($DEPENDENCY_ROOT)) {
         die "Cannot copy maven dependencies";
     }
 

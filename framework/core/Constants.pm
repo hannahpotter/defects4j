@@ -173,6 +173,16 @@ our $MAJOR_ROOT = ($ENV{'MAJOR_ROOT'} // "$BASE_DIR/major");
 
 =pod
 
+=item C<DEPENDENCY_ROOT>
+
+The root directory of the project dependencies (I<C<BASE_DIR>/dependencies>)
+
+=cut
+
+our $DEPENDENCY_ROOT = ($ENV{'DEPENDENCY_ROOT'} // "$BASE_DIR/dependencies");
+
+=pod
+
 =item C<TESTGEN_LIB_DIR>
 
 The directory of the libraries of the test generation tools (I<C<LIB_DIR>/test_generation/generation>)
@@ -367,6 +377,7 @@ $CORE_DIR
 $LIB_DIR
 $UTIL_DIR
 $BASE_DIR
+$DEPENDENCY_ROOT
 $MAJOR_ROOT
 $TESTGEN_BIN_DIR
 $TESTGEN_LIB_DIR

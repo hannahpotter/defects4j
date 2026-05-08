@@ -131,9 +131,7 @@ unshift(@INC, "$WORK_DIR/framework/core");
 # Override global constants
 $REPO_DIR = "$WORK_DIR/project_repos";
 $PROJECTS_DIR = "$WORK_DIR/framework/projects";
-
-# Set the projects and repository directories to the current working directory.
-my $PROJECTS_DIR = "$WORK_DIR/framework/projects";
+$DEPENDENCY_ROOT = "$PROJECTS_DIR/$PID/lib/dependency";
 
 my $BUILD_ARGS = "$PROJECTS_DIR/$PID/build_args";
 my $PREEXEC_CMDS = "$PROJECTS_DIR/$PID/preexec_cmds";

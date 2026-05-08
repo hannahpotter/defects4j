@@ -128,6 +128,7 @@ unshift(@INC, "$WORK_DIR/framework/core");
 # Override global constants
 $REPO_DIR = "$WORK_DIR/project_repos";
 $PROJECTS_DIR = "$WORK_DIR/framework/projects";
+$DEPENDENCY_ROOT = "$PROJECTS_DIR/$PID/lib/dependency";
 
 my $PROJECT_DIR = "$PROJECTS_DIR/$PID";
 # Directories for loaded and modified classes
@@ -142,6 +143,8 @@ my $BUILD_ARGS = "$PROJECTS_DIR/$PID/build_args";
 my $PREEXEC_CMDS = "$PROJECTS_DIR/$PID/preexec_cmds";
 my $JUNIT_ARGS = "$PROJECTS_DIR/$PID/junit_args";
 my $ALL_TESTSUITES = "$PROJECTS_DIR/$PID/all_testsuites";
+
+my $MAVEN_DEPENDENCIES = "$PROJECTS_DIR/$PID/maven_dependency";
 
 # DB_CSVs directory
 my $db_dir = $WORK_DIR;
@@ -176,6 +179,14 @@ foreach my $bid (@bids) {
 
     # Checkout to version 2
     $project->checkout_vid("${bid}f", $TMP_DIR, 1) or die;
+
+    if (-e "$project->{prog_root}/pom.xml") {
+        # Delete old folder if it exists
+        system("rm -rf $MAVEN_DEPENDENCIES/$bid");
+        system("mkdir -p $MAVEN_DEPENDENCIES/$bid");
+        # Copy the maven dependencies 
+        $project->run_mvn_copy_dependencies("$MAVEN_DEPENDENCIES/$bid");
+    }
 
     # Compile sources and tests
     $project->compile("$BUILD_ARGS/$bid.src") or die;

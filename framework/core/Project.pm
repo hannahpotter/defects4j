@@ -465,7 +465,7 @@ sub checkout_vid {
 
     # Add symlinks to the project dependencies
     my $dependency_dir = "$work_dir/$DEPENDENCY_DIR";
-    $cmd = "ln -snf  $PROJECTS_DIR/$pid/lib/dependency $dependency_dir 2>&1" .
+    $cmd = "ln -snf  $DEPENDENCY_ROOT $dependency_dir 2>&1" .
            " && ln -sf $BASE_DIR/framework/projects/lib/junit-4.12-hamcrest-1.3.jar $dependency_dir/junit-4.12-hamcrest-1.3.jar 2>&1" .
            " && ln -sf $LIB_DIR/formatter.jar $dependency_dir/formatter.jar 2>&1";
     Utils::exec_cmd($cmd, "Add symlink to project dependencies")
@@ -649,7 +649,6 @@ sub run_mvn_copy_dependencies {
     # Ignores dependency if local copy already exists
     my $cmd = " cd $self->{prog_root}" .
               " && mvn dependency:copy-dependencies" .
-              " -Dmdep.copyPom=true" .
               " -DoutputDirectory=$output_directory" .
               " -Dmdep.useRepositoryLayout=true";
 

@@ -136,12 +136,11 @@ unshift(@INC, "$WORK_DIR/framework/core");
 # Set the projects and repository directories to the current working directory
 $REPO_DIR = "$WORK_DIR/project_repos";
 $PROJECTS_DIR = "$WORK_DIR/framework/projects";
+$DEPENDENCY_ROOT = "$PROJECTS_DIR/$PID/lib/dependency";
 
 my $FAILING_DIR = "$PROJECTS_DIR/$PID/failing_tests";
-my $DEPENDENCIES = "$PROJECTS_DIR/$PID/lib/dependency";
 
 -d $FAILING_DIR or die "$FAILING_DIR does not exist: $!";
--d $DEPENDENCIES or die "$DEPENDENCIES does not exist: $!";
 
 # Keep log of issues
 my $LOG = "$PROJECTS_DIR/$PID/analyze_project_error_log.txt";

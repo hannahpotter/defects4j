@@ -35,7 +35,7 @@ metadata:
   - framework/projects/<PROJECT_ID>/build_args
   - framework/projects/<PROJECT_ID>/failing_tests
   - framework/projects/<PROJECT_ID>/junit_args
-  - framework/projects/<PROJECT_ID>/lib
+  - framework/projects/<PROJECT_ID>/maven_dependency
   - framework/projects/<PROJECT_ID>/loaded_classes
   - framework/projects/<PROJECT_ID>/modified_classes
   - framework/projects/<PROJECT_ID>/patches
@@ -107,6 +107,7 @@ my $WORK_DIR = abs_path($cmd_opts{w});
 my $REPOSITORY_DIR = abs_path($cmd_opts{r});
 my $BID = $cmd_opts{b};
 my $OUTPUT_DIR = $cmd_opts{o} // "$SCRIPT_DIR/projects";
+my $MAVEN_DEPENDENCIES = "$WORK_DIR/framework/projects/$PID/maven_dependency";
 
 # Check format of target version id
 if (defined $BID) {
@@ -135,7 +136,7 @@ my @id_specific_files = ("all_testcases/<id>",
                          "preexec_cmds/<id>.src", "preexec_cmds/<id>.test",
                          "trigger_tests/<id>",
                          "relevant_tests/<id>");
-my @generic_files_and_directories_to_replace = ("lib", $BUGS_CSV_DEPRECATED);
+my @generic_files_and_directories_to_replace = ($BUGS_CSV_DEPRECATED);
 my @generic_files_to_append = ("dependent_tests", $LAYOUT_FILE);
 
 my @ids = _get_bug_ids($BID);
@@ -211,6 +212,10 @@ foreach my $id (@ids) {
         my $dst = "$OUTPUT_DIR/$PID/$fn_dst";
         _copy($src, $dst);
     }
+    
+    # Copy necessary dependencies for the project
+    print("DEPENDENCY ROOT: $DEPENDENCY_ROOT");
+    system("rsync -av $MAVEN_DEPENDENCIES/$id/ $DEPENDENCY_ROOT");
 }
 
 for my $fn (@generic_files_and_directories_to_replace) {

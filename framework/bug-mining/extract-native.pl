@@ -117,6 +117,7 @@ unshift(@INC, "$WORK_DIR/framework/core");
 # Override global constants
 $REPO_DIR = "$WORK_DIR/project_repos";
 $PROJECTS_DIR = "$WORK_DIR/framework/projects";
+$DEPENDENCY_ROOT = "$PROJECTS_DIR/$PID/lib/dependency";
 
 my $ANALYZER_OUTPUT = "$PROJECTS_DIR/$PID/analyzer_output";
 my $BUILD_ARGS = "$PROJECTS_DIR/$PID/build_args";
